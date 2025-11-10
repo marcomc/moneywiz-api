@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from moneywiz_api.cli.cli import get_default_path
+from pathlib import Path
 
-TEST_DB_PATH = get_default_path()
+# Use repository test database for integration tests
+TEST_DB_PATH = Path(__file__).resolve().parents[3] / "tests/test_db.sqlite"
 
 BALANCE_AS_OF_DATE = datetime(2023, 5, 19, 0, 0, 0)
 CASH_BALANCES = [
