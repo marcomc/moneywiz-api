@@ -24,6 +24,17 @@ class RawDataHandler:
             return RawDataHandler.get_decimal(row, key)
 
     @staticmethod
+    def get_nullable_datetime(row: Dict[str, Any], key: str) -> Optional[datetime]:
+        raw_value = row.get(key)
+        if raw_value is None:
+            return None
+        assert isinstance(raw_value, float) or isinstance(raw_value, int), (
+            f"row['{key}'] = {row[key]}, is not a float or int, where row is: "
+            + str(RawDataHandler.filter_row(row))
+        )
+        return get_datetime(raw_value)
+
+    @staticmethod
     def get_decimal(row: Dict[str, Any], key: str) -> Decimal:
         raw_value = row[key]
         assert isinstance(raw_value, float) or isinstance(raw_value, int), (

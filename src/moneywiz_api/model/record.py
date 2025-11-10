@@ -4,6 +4,7 @@ from datetime import datetime
 
 from moneywiz_api.types import ID, ENT_ID
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
+from moneywiz_api.utils import get_datetime
 
 
 @dataclass
@@ -17,7 +18,9 @@ class Record:
     def __init__(self, row):
         self._raw = row
         self._ent = row["Z_ENT"]
-        self._created_at = RDH.get_datetime(row, "ZOBJECTCREATIONDATE")
+        # Some rows may lack creation date; default to Apple epoch start
+        _created = RDH.get_nullable_datetime(row, "ZOBJECTCREATIONDATE")
+        self._created_at = _created or get_datetime(0.0)
         self.gid = row["ZGID"]
         self.id = row["Z_PK"]
 
@@ -26,7 +29,7 @@ class Record:
         # Validate
         assert self._raw
         assert self._ent
-        assert self._created_at
+        assert self._created_at is not None
         assert self.gid
         assert self.id
 
