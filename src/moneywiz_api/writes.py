@@ -31,10 +31,12 @@ class WriteSession:
         self._exec("BEGIN")
 
     def commit(self):
-        self._exec("COMMIT")
+        if not self.dry_run:
+            self._con.commit()
 
     def rollback(self):
-        self._exec("ROLLBACK")
+        if not self.dry_run:
+            self._con.rollback()
 
     @contextmanager
     def transaction(self):
@@ -50,16 +52,16 @@ class WriteSession:
     def planned(self) -> list[PlannedSQL]:
         return self._planned
 
-    def _exec(self, sql: str, params: Sequence[Any] | None = None):
+    def _exec(self, sql: str, params: Sequence[Any] | None = None) -> sqlite3.Cursor | None:
         self._planned.append(PlannedSQL(sql, params))
         if self.dry_run:
-            return
+            return None
         cur = self._con.cursor()
         if params is None:
             cur.execute(sql)
         else:
             cur.execute(sql, params)
-        self._con.commit()
+        return cur
 
     # ---------------------------
     # Schema / reference helpers
@@ -159,13 +161,12 @@ class WriteSession:
         cols = ", ".join(data.keys())
         placeholders = ", ".join(["?"] * len(data))
         sql = f"INSERT INTO ZSYNCOBJECT ({cols}) VALUES ({placeholders})"
-        if self.dry_run:
-            self._exec(sql, list(data.values()))
+        params = list(data.values())
+        cur = self._exec(sql, params)
+        if cur is None:
             return None
-        cur = self._con.cursor()
-        cur.execute(sql, list(data.values()))
-        self._con.commit()
-        return int(cur.lastrowid)
+        lastrowid = cur.lastrowid
+        return None if lastrowid is None else int(lastrowid)
 
     def update_syncobject(self, pk: int, fields: dict[str, Any]) -> None:
         if not fields:
