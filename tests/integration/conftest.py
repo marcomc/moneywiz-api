@@ -4,23 +4,8 @@ from moneywiz_api import MoneywizApi
 from datetime import datetime
 
 
-def _resolve_test_db() -> Path:
-    base = Path(__file__).resolve()
-    candidates = [base.parents[2]]
-    if len(base.parents) > 3:
-        candidates.append(base.parents[3])
-    for root in candidates:
-        candidate = root / "tests/test_db.sqlite"
-        if candidate.exists():
-            return candidate
-    joined = ", ".join(str(root / "tests/test_db.sqlite") for root in candidates)
-    raise FileNotFoundError(
-        f"tests/test_db.sqlite not found in any of: {joined}."
-        " Please place a MoneyWiz fixture at tests/test_db.sqlite."
-    )
-
-
-TEST_DB_PATH = _resolve_test_db()
+# Use repository test database for integration tests
+TEST_DB_PATH = Path(__file__).resolve().parents[2] / "tests/test_db.sqlite"
 
 moneywizApi = MoneywizApi(TEST_DB_PATH)
 
