@@ -4,7 +4,7 @@ from moneywiz_api.writes import WriteSession
 
 def test_insert_deposit_preview(tmp_path: Path):
     # Use a copy of the test DB for apply-mode tests later; here we just dry-run
-    db = Path(__file__).resolve().parents[3] / "tests/test_db.sqlite"
+    db = Path(__file__).resolve().parents[2] / "tests/test_db.sqlite"
     session = WriteSession(db, dry_run=True)
     session.insert_syncobject(
         "DepositTransaction",
