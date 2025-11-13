@@ -16,7 +16,8 @@ def test_insert_deposit_preview(tmp_path: Path):
         },
     )
     plan = session.planned
-    assert len(plan) == 1
-    assert plan[0].sql.startswith("INSERT INTO ZSYNCOBJECT")
-    assert "Z_ENT" in plan[0].sql and "ZGID" in plan[0].sql and "Z_OPT" in plan[0].sql
-
+    assert len(plan) == 2
+    insert_plan, update_plan = plan
+    assert insert_plan.sql.startswith("INSERT INTO ZSYNCOBJECT")
+    assert "Z_ENT" in insert_plan.sql and "ZGID" in insert_plan.sql and "Z_OPT" in insert_plan.sql
+    assert update_plan.sql.startswith("UPDATE Z_PRIMARYKEY SET Z_MAX")

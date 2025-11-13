@@ -149,6 +149,27 @@ class WriteSession:
             raise ValueError(f"Unknown typename '{typename}' in Z_PRIMARYKEY")
         return int(res[0])
 
+    def _primarykey_max(self, ent: int) -> int:
+        cur = self._con.cursor()
+        row = cur.execute(
+            'SELECT Z_MAX FROM Z_PRIMARYKEY WHERE Z_ENT = ? LIMIT 1', (ent,)
+        ).fetchone()
+        if not row or row[0] is None:
+            raise ValueError(f"Missing Z_PRIMARYKEY entry for entity {ent}")
+        return int(row[0])
+
+    def _next_primarykey(self, ent: int) -> int:
+        return self._primarykey_max(ent) + 1
+
+    def _ensure_primarykey_max(self, ent: int, candidate: int | None) -> None:
+        if candidate is None:
+            return
+        sql = (
+            "UPDATE Z_PRIMARYKEY SET Z_MAX = ? "
+            "WHERE Z_ENT = ? AND Z_MAX < ?"
+        )
+        self._exec(sql, (candidate, ent, candidate))
+
     def insert_syncobject(self, typename: str, fields: dict[str, Any]) -> int | None:
         ent = self._ent_for(typename)
         data = dict(fields)
@@ -157,15 +178,22 @@ class WriteSession:
         data.setdefault("ZGID", str(uuid.uuid4()).upper())
         # Provide a creation timestamp if missing (Apple epoch float)
         data.setdefault("ZOBJECTCREATIONDATE", get_date(datetime.now()))
+        provided_pk = data.get("Z_PK")
+        predicted_pk = int(provided_pk) if provided_pk is not None else self._next_primarykey(ent)
 
         cols = ", ".join(data.keys())
         placeholders = ", ".join(["?"] * len(data))
         sql = f"INSERT INTO ZSYNCOBJECT ({cols}) VALUES ({placeholders})"
         params = list(data.values())
         cur = self._exec(sql, params)
+        target_pk = predicted_pk
         if cur is None:
+            self._ensure_primarykey_max(ent, target_pk)
             return None
         lastrowid = cur.lastrowid
+        if lastrowid is not None:
+            target_pk = int(lastrowid)
+        self._ensure_primarykey_max(ent, target_pk)
         return None if lastrowid is None else int(lastrowid)
 
     def update_syncobject(self, pk: int, fields: dict[str, Any]) -> None:
