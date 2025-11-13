@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from datetime import datetime
 
 from moneywiz_api import MoneywizApi
@@ -10,7 +12,7 @@ from tests.integration.test_config import (
 )
 
 
-moneywizApi = MoneywizApi(TEST_DB_PATH)
+moneywizApi = MoneywizApi(Path(TEST_DB_PATH))
 
 accessor = moneywizApi.accessor
 account_manager = moneywizApi.account_manager
