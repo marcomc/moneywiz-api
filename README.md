@@ -59,6 +59,16 @@ Whether you are building a CLI, a service, or a notebook on top of this API, you
    api = MoneywizApi(TEST_DB)
    ```
 
+## Preparing the bundled test DB
+
+The integration suite expects `tests/test_db.sqlite` inside this repository. Record a sanitized copy by copying your export into that location and, if desired, run the helper scripts to scrub sensitive data:
+
+```bash
+# copy a local MoneyWiz export into the repo
+cp ~/Library/Containers/com.moneywiz.personalfinance/Data/Documents/.AppData/ipadMoneyWiz.sqlite \
+  tests/test_db.sqlite
+```
+
 The API only reads the database; it does not mutate tables unless your code explicitly uses the write helpers. This makes it safe to check small fixtures into source control for automated testing.
 
 ## Contribution
