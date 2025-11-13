@@ -11,7 +11,6 @@ from tests.integration.test_config import (
     # BALANCE_AS_OF_DATE,
 )
 
-
 moneywizApi = MoneywizApi(Path(TEST_DB_PATH))
 
 accessor = moneywizApi.accessor
