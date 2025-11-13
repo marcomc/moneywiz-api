@@ -1,11 +1,14 @@
-from pathlib import Path
-
-from moneywiz_api import MoneywizApi
 from datetime import datetime
 
+from moneywiz_api import MoneywizApi
 
-# Use repository test database for integration tests
-TEST_DB_PATH = Path(__file__).resolve().parents[2] / "tests/test_db.sqlite"
+from tests.integration.test_config import (
+    TEST_DB_PATH,
+    # CASH_BALANCES,
+    # HOLDINGS_BALANCES,
+    # BALANCE_AS_OF_DATE,
+)
+
 
 moneywizApi = MoneywizApi(TEST_DB_PATH)
 
