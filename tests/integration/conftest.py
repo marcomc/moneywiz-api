@@ -2,7 +2,7 @@ from pathlib import Path
 
 from moneywiz_api import MoneywizApi
 from datetime import datetime
-TEST_DB_PATH = Path(__file__).resolve().parents[3] / "tests/test_db.sqlite"
+TEST_DB_PATH = Path(__file__).resolve().parents[2] / "tests/test_db.sqlite"
 
 moneywizApi = MoneywizApi(Path(TEST_DB_PATH))
 
