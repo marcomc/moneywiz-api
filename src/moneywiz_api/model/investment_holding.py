@@ -47,7 +47,9 @@ class InvestmentHolding(Record):
         self.opening_number_of_shares = RDH.get_nullable_decimal(
             row, "ZOPENNINGNUMBEROFSHARES"
         )
-        self.number_of_shares = RDH.get_nullable_decimal(row, "ZNUMBEROFSHARES")
+        self.number_of_shares = RDH.get_nullable_decimal_alias(
+            row, "ZNUMBEROFSHARES", "ZNUMBEROFSHARES1"
+        )
         # self.price_per_share = row["ZPRICEPERSHARE"]
         self.symbol = row["ZSYMBOL"]
         self.holding_type = row["ZHOLDINGTYPE"]

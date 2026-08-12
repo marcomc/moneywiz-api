@@ -33,12 +33,33 @@ class RawDataHandler:
         return Decimal(str(raw_value))
 
     @staticmethod
+    def get_decimal_alias(row: Dict[str, Any], *keys: str) -> Decimal:
+        """Read a required decimal field from the first available column alias."""
+        for key in keys:
+            if key in row:
+                return RawDataHandler.get_decimal(row, key)
+        raise KeyError(f"none of the schema aliases are present: {', '.join(keys)}")
+
+    @staticmethod
+    def get_nullable_decimal_alias(
+        row: Dict[str, Any], *keys: str
+    ) -> Optional[Decimal]:
+        """Read an optional decimal field from the first available column alias."""
+        for key in keys:
+            if key in row:
+                return RawDataHandler.get_nullable_decimal(row, key)
+        raise KeyError(f"none of the schema aliases are present: {', '.join(keys)}")
+
+    @staticmethod
     def filter_row(row: Dict[str, Any]) -> Dict[str, Any]:
         copy = {k: v for k, v in row.items()}
-        del copy["ZMANUALHISTORICALPRICESPERSHARE"]
-        del copy["ZIMPORTLINKIDARRAY2"]
-        del copy["ZIMPORTLINKIDARRAY"]
-        del copy["ZBANKLOGOPRIMARYCOLOR"]
+        for key in (
+            "ZMANUALHISTORICALPRICESPERSHARE",
+            "ZIMPORTLINKIDARRAY2",
+            "ZIMPORTLINKIDARRAY",
+            "ZBANKLOGOPRIMARYCOLOR",
+        ):
+            copy.pop(key, None)
         return {
             k: v
             for k, v in copy.items()

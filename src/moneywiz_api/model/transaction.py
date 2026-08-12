@@ -12,7 +12,6 @@ from moneywiz_api.types import ID
 
 ABS_TOLERANCE = 0.001
 
-
 @dataclass
 class Transaction(Record, ABC):
     """
@@ -177,8 +176,12 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         self.fee = RDH.get_decimal(row, "ZFEE2")
 
         self.investment_holding = row["ZINVESTMENTHOLDING"]
-        self.number_of_shares = RDH.get_decimal(row, "ZNUMBEROFSHARES")
-        self.price_per_share = RDH.get_decimal(row, "ZPRICEPERSHARE1")
+        self.number_of_shares = RDH.get_decimal_alias(
+            row, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
+        )
+        self.price_per_share = RDH.get_decimal_alias(
+            row, "ZPRICEPERSHARE1", "ZPRICEPERSHARE"
+        )
 
         # Fixes
         self.fee = max(self.fee, 0)
@@ -230,8 +233,12 @@ class InvestmentSellTransaction(InvestmentTransaction):
         self.fee = RDH.get_decimal(row, "ZFEE2")
 
         self.investment_holding = row["ZINVESTMENTHOLDING"]
-        self.number_of_shares = RDH.get_decimal(row, "ZNUMBEROFSHARES")
-        self.price_per_share = RDH.get_decimal(row, "ZPRICEPERSHARE1")
+        self.number_of_shares = RDH.get_decimal_alias(
+            row, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
+        )
+        self.price_per_share = RDH.get_decimal_alias(
+            row, "ZPRICEPERSHARE1", "ZPRICEPERSHARE"
+        )
 
         # Fixes
         self.fee = max(self.fee, 0)
@@ -383,9 +390,9 @@ class TransferDepositTransaction(Transaction):
         self.sender_transaction = row["ZSENDERTRANSACTION"]
 
         self.original_amount = RDH.get_decimal(row, "ZORIGINALAMOUNT")
-        self.original_currency = row["ZORIGINALCURRENCY"]
+        self.original_currency = row["ZORIGINALCURRENCY"] or ""
         self.sender_amount = RDH.get_decimal(row, "ZORIGINALSENDERAMOUNT")
-        self.sender_currency = row["ZORIGINALSENDERCURRENCY"]
+        self.sender_currency = row["ZORIGINALSENDERCURRENCY"] or ""
 
         self.original_fee = RDH.get_nullable_decimal(row, "ZORIGINALFEE")
         self.original_fee_currency = row["ZORIGINALFEECURRENCY"]
@@ -394,6 +401,11 @@ class TransferDepositTransaction(Transaction):
 
         # Fixes
         self.original_amount = abs(self.original_amount)
+        if self.original_amount == 0 and self.sender_amount != 0:
+            self.original_amount = abs(
+                -self.sender_amount * self.original_exchange_rate
+                - (self.original_fee or 0)
+            )
 
         # Validate
         self.validate()
@@ -456,9 +468,9 @@ class TransferWithdrawTransaction(Transaction):
         self.recipient_transaction = row["ZRECIPIENTTRANSACTION"]
 
         self.original_amount = RDH.get_decimal(row, "ZORIGINALAMOUNT")
-        self.original_currency = row["ZORIGINALCURRENCY"]
+        self.original_currency = row["ZORIGINALCURRENCY"] or ""
         self.recipient_amount = RDH.get_decimal(row, "ZORIGINALRECIPIENTAMOUNT")
-        self.recipient_currency = row["ZORIGINALRECIPIENTCURRENCY"]
+        self.recipient_currency = row["ZORIGINALRECIPIENTCURRENCY"] or ""
 
         self.original_fee = RDH.get_nullable_decimal(row, "ZORIGINALFEE")
         self.original_fee_currency = row["ZORIGINALFEECURRENCY"]
@@ -467,6 +479,14 @@ class TransferWithdrawTransaction(Transaction):
 
         # Fixes
         self.recipient_amount = abs(self.recipient_amount)
+        if self.recipient_amount == 0 and self.original_amount != 0:
+            self.recipient_amount = abs(
+                self.original_amount * self.original_exchange_rate
+            )
+        if self.original_amount == 0 and self.recipient_amount != 0:
+            self.original_amount = -abs(
+                self.recipient_amount / self.original_exchange_rate
+            )
 
         # Validate
         self.validate()
