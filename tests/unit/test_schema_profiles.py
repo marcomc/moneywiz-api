@@ -41,6 +41,20 @@ def test_detects_mixed_investment_columns() -> None:
     assert profile.price_per_share_column == "ZPRICEPERSHARE1"
 
 
+def test_rejects_ambiguous_investment_column_profile() -> None:
+    connection = make_connection(
+        "ZNUMBEROFSHARES",
+        "ZNUMBEROFSHARES1",
+        "ZPRICEPERSHARE",
+        "ZPRICEPERSHARE1",
+    )
+
+    profile = detect_schema_profile(connection)
+
+    assert profile.profile_id == "unknown"
+    assert not profile.is_known
+
+
 def test_decimal_alias_reads_both_profiles() -> None:
     assert (
         RawDataHandler.get_decimal_alias(
