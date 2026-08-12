@@ -12,6 +12,7 @@ from moneywiz_api.types import ID
 
 ABS_TOLERANCE = 0.001
 
+
 @dataclass
 class Transaction(Record, ABC):
     """
@@ -484,6 +485,10 @@ class TransferWithdrawTransaction(Transaction):
                 self.original_amount * self.original_exchange_rate
             )
         if self.original_amount == 0 and self.recipient_amount != 0:
+            if self.original_exchange_rate == 0:
+                raise ValueError(
+                    "cannot reconstruct a transfer amount with a zero exchange rate"
+                )
             self.original_amount = -abs(
                 self.recipient_amount / self.original_exchange_rate
             )
