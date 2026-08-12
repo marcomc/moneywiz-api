@@ -42,25 +42,40 @@ def test_detects_mixed_investment_columns() -> None:
 
 
 def test_decimal_alias_reads_both_profiles() -> None:
-    assert RawDataHandler.get_decimal_alias(
-        {"ZNUMBEROFSHARES": 2.5}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
-    ) == 2.5
-    assert RawDataHandler.get_decimal_alias(
-        {"ZNUMBEROFSHARES1": 3.5}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
-    ) == 3.5
-    assert RawDataHandler.get_decimal_alias(
-        {"ZNUMBEROFSHARES1": None, "ZNUMBEROFSHARES": 4.5},
-        "ZNUMBEROFSHARES1",
-        "ZNUMBEROFSHARES",
-    ) == 4.5
-    assert RawDataHandler.get_nullable_decimal_alias(
-        {"ZNUMBEROFSHARES": None}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
-    ) is None
-    assert RawDataHandler.get_nullable_decimal_alias(
-        {"ZNUMBEROFSHARES1": None, "ZNUMBEROFSHARES": 5.5},
-        "ZNUMBEROFSHARES1",
-        "ZNUMBEROFSHARES",
-    ) == 5.5
+    assert (
+        RawDataHandler.get_decimal_alias(
+            {"ZNUMBEROFSHARES": 2.5}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
+        )
+        == 2.5
+    )
+    assert (
+        RawDataHandler.get_decimal_alias(
+            {"ZNUMBEROFSHARES1": 3.5}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
+        )
+        == 3.5
+    )
+    assert (
+        RawDataHandler.get_decimal_alias(
+            {"ZNUMBEROFSHARES1": None, "ZNUMBEROFSHARES": 4.5},
+            "ZNUMBEROFSHARES1",
+            "ZNUMBEROFSHARES",
+        )
+        == 4.5
+    )
+    assert (
+        RawDataHandler.get_nullable_decimal_alias(
+            {"ZNUMBEROFSHARES": None}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
+        )
+        is None
+    )
+    assert (
+        RawDataHandler.get_nullable_decimal_alias(
+            {"ZNUMBEROFSHARES1": None, "ZNUMBEROFSHARES": 5.5},
+            "ZNUMBEROFSHARES1",
+            "ZNUMBEROFSHARES",
+        )
+        == 5.5
+    )
 
 
 def test_filter_row_accepts_missing_optional_blob_columns() -> None:
