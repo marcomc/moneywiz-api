@@ -21,7 +21,6 @@ ABS_TOLERANCE = Decimal("0.001")
 def approx_equal(a: Decimal, b: Decimal, abs_tol: Decimal = ABS_TOLERANCE) -> bool:
     return abs(a - b) <= abs_tol
 
-
 @dataclass
 class Transaction(Record, ABC):
     FIELDS = {

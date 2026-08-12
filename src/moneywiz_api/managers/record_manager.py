@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Generic, TypeVar
+import logging
+from typing import Callable, Dict, Generic, TypeVar
 
 from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.record import Record
@@ -7,12 +8,14 @@ from moneywiz_api.model.schema_mapped_row import mapped_row
 from moneywiz_api.types import GID, ID
 
 T = TypeVar("T", bound=Record)
+logger = logging.getLogger(__name__)
 
 
 class RecordManager(ABC, Generic[T]):
     def __init__(self) -> None:
         self._records: Dict[ID, T] = {}
         self._gid_to_id: Dict[GID, ID] = {}
+        self._load_errors: list[tuple[ID, str, str]] = []
 
     @property
     @abstractmethod
@@ -24,14 +27,28 @@ class RecordManager(ABC, Generic[T]):
 
         for record in records:
             typename = db_accessor.typename_for(record["Z_ENT"])
-            assert typename in self.ents, (
-                f"Unknown typename {typename} for record {record}"
-            )
+            if typename in self.ents:
+                try:
+                    obj = self.construct_record(self.ents[typename], record, db_accessor)
+                    obj.validate()
+                except (AssertionError, KeyError, ValueError) as exc:
+                    record_id = record.get("Z_PK")
+                    detail = type(exc).__name__
+                    self._load_errors.append((record_id, typename, detail))
+                    logger.debug(
+                        "Skipping unreadable %s record %s: %s",
+                        typename,
+                        record_id,
+                        detail,
+                    )
+                    continue
+                self.add(obj)
 
-            model_cls = self.ents[typename]
-            obj = model_cls(mapped_row(record, model_cls))
-            obj.validate()
-            self.add(obj)
+    def construct_record(
+        self, constructor: Callable, record, db_accessor: DatabaseAccessor
+    ):
+        """Construct a record; subclasses can supply schema-specific context."""
+        return constructor(mapped_row(record, constructor))
 
     def add(self, record: T) -> None:
         self._records[record.id] = record
@@ -53,6 +70,11 @@ class RecordManager(ABC, Generic[T]):
 
     def records(self) -> Dict[ID, T]:
         return self._records
+
+    @property
+    def load_errors(self) -> list[tuple[ID, str, str]]:
+        """Return records skipped during best-effort read parsing."""
+        return list(self._load_errors)
 
     def __repr__(self):
         return "\n".join(f"{key}: {value}" for key, value in self.records().items())

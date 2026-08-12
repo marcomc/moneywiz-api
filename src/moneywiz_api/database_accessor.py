@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
+from moneywiz_api.schema_profile import SchemaProfile, detect_schema_profile
 from moneywiz_api.types import ENT_ID, GID, ID
 
 
@@ -21,6 +22,7 @@ class DatabaseAccessor:
             return record
 
         self._con.row_factory = dict_factory
+        self._schema_profile = detect_schema_profile(self._con)
 
         self._ent_to_typename: Dict[ENT_ID, str] = self._load_primarykey()
         self._typename_to_ent: Dict[str, ENT_ID] = {
@@ -44,6 +46,11 @@ class DatabaseAccessor:
             f"{key}: {value}" for key, value in self._ent_to_typename.items()
         )
 
+    @property
+    def schema_profile(self) -> SchemaProfile:
+        """Return the physical-column compatibility profile for this store."""
+        return self._schema_profile
+
     def typename_for(self, ent_id: ENT_ID) -> str:
         typename = self._ent_to_typename.get(ent_id)
         assert typename is not None, f"Unknown ent_id {ent_id}"
@@ -53,6 +60,13 @@ class DatabaseAccessor:
         ent_id = self._typename_to_ent.get(typename)
         assert ent_id is not None, f"Unknown typename {typename}"
         return ent_id
+
+    def _table_exists(self, table_name: str) -> bool:
+        row = self._con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+        return row is not None
 
     def query_objects(self, typenames: List[str]) -> List[Any]:
         cur = self._con.cursor()
@@ -91,6 +105,8 @@ class DatabaseAccessor:
 
     def get_category_assignment(self) -> Dict[ID, List[Tuple[ID, Decimal]]]:
         transaction_map: Dict[ID, List[Tuple[ID, Decimal]]] = defaultdict(list)
+        if not self._table_exists("ZCATEGORYASSIGMENT"):
+            return transaction_map
         cur = self._con.cursor()
         res = cur.execute(
             """
@@ -106,6 +122,8 @@ class DatabaseAccessor:
 
     def get_refund_maps(self) -> Dict[ID, ID]:
         refund_to_withdraw: Dict[ID, ID] = {}
+        if not self._table_exists("ZWITHDRAWREFUNDTRANSACTIONLINK"):
+            return refund_to_withdraw
         cur = self._con.cursor()
         res = cur.execute(
             """
