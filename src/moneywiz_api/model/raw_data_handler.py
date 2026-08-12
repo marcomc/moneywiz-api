@@ -31,7 +31,7 @@ class RawDataHandler:
     def get_decimal_alias(row: Dict[str, Any], *keys: str) -> Decimal:
         """Read a required decimal field from the first available column alias."""
         for key in keys:
-            if key in row:
+            if key in row and row[key] is not None:
                 return RawDataHandler.get_decimal(row, key)
         raise KeyError(f"none of the schema aliases are present: {', '.join(keys)}")
 
@@ -40,9 +40,14 @@ class RawDataHandler:
         row: Dict[str, Any], *keys: str
     ) -> Optional[Decimal]:
         """Read an optional decimal field from the first available column alias."""
+        found_alias = False
         for key in keys:
             if key in row:
-                return RawDataHandler.get_nullable_decimal(row, key)
+                found_alias = True
+                if row[key] is not None:
+                    return RawDataHandler.get_nullable_decimal(row, key)
+        if found_alias:
+            return None
         raise KeyError(f"none of the schema aliases are present: {', '.join(keys)}")
 
     @staticmethod
