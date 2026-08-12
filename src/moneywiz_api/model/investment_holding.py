@@ -64,7 +64,7 @@ class InvestmentHolding(Record):
         overrides = {}
         if schema_profile is not None:
             overrides["number_of_shares"] = nullable_decimal_field(
-                schema_profile.number_of_shares_column
+                schema_profile.holding_number_of_shares_column
             )
         row = mapped_row(row, self.__class__, overrides)
         super().__init__(row)

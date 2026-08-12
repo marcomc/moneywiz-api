@@ -203,7 +203,7 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         overrides = {}
         if schema_profile is not None:
             overrides["number_of_shares"] = decimal_field(
-                schema_profile.number_of_shares_column
+                schema_profile.transaction_number_of_shares_column
             )
             overrides["price_per_share"] = decimal_field(
                 schema_profile.price_per_share_column
@@ -267,7 +267,7 @@ class InvestmentSellTransaction(InvestmentTransaction):
         overrides = {}
         if schema_profile is not None:
             overrides["number_of_shares"] = decimal_field(
-                schema_profile.number_of_shares_column
+                schema_profile.transaction_number_of_shares_column
             )
             overrides["price_per_share"] = decimal_field(
                 schema_profile.price_per_share_column
@@ -554,9 +554,7 @@ class TransferWithdrawTransaction(Transaction):
                 raise ValueError(
                     "cannot reconstruct a transfer amount with a zero exchange rate"
                 )
-            self.original_amount = -abs(
-                self.recipient_amount / self.original_exchange_rate
-            )
+            self.original_amount = self.amount
 
     def validate(self) -> None:
         super().validate()
