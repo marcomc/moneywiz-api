@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from moneywiz_api import MoneywizApi
 from tests.integration.test_config import (
     # BALANCE_AS_OF_DATE,
@@ -8,7 +6,7 @@ from tests.integration.test_config import (
     TEST_DB_PATH,
 )
 
-moneywizApi = MoneywizApi(Path(TEST_DB_PATH))
+moneywizApi = MoneywizApi(TEST_DB_PATH)
 
 accessor = moneywizApi.accessor
 account_manager = moneywizApi.account_manager

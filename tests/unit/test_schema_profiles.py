@@ -31,6 +31,16 @@ def test_detects_unsuffixed_live_profile() -> None:
     assert profile.price_per_share_column == "ZPRICEPERSHARE"
 
 
+def test_detects_mixed_investment_columns() -> None:
+    connection = make_connection("ZNUMBEROFSHARES", "ZPRICEPERSHARE1")
+
+    profile = detect_schema_profile(connection)
+
+    assert profile.profile_id == "mixed-investment-columns"
+    assert profile.number_of_shares_column == "ZNUMBEROFSHARES"
+    assert profile.price_per_share_column == "ZPRICEPERSHARE1"
+
+
 def test_decimal_alias_reads_both_profiles() -> None:
     assert RawDataHandler.get_decimal_alias(
         {"ZNUMBEROFSHARES": 2.5}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
@@ -38,9 +48,19 @@ def test_decimal_alias_reads_both_profiles() -> None:
     assert RawDataHandler.get_decimal_alias(
         {"ZNUMBEROFSHARES1": 3.5}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
     ) == 3.5
+    assert RawDataHandler.get_decimal_alias(
+        {"ZNUMBEROFSHARES1": None, "ZNUMBEROFSHARES": 4.5},
+        "ZNUMBEROFSHARES1",
+        "ZNUMBEROFSHARES",
+    ) == 4.5
     assert RawDataHandler.get_nullable_decimal_alias(
         {"ZNUMBEROFSHARES": None}, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
     ) is None
+    assert RawDataHandler.get_nullable_decimal_alias(
+        {"ZNUMBEROFSHARES1": None, "ZNUMBEROFSHARES": 5.5},
+        "ZNUMBEROFSHARES1",
+        "ZNUMBEROFSHARES",
+    ) == 5.5
 
 
 def test_filter_row_accepts_missing_optional_blob_columns() -> None:

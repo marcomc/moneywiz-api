@@ -29,27 +29,37 @@ def detect_schema_profile(connection: sqlite3.Connection) -> SchemaProfile:
     has_suffixed_price = "ZPRICEPERSHARE1" in columns
     has_unsuffixed_price = "ZPRICEPERSHARE" in columns
 
-    if has_suffixed_shares:
+    if has_suffixed_shares and has_suffixed_price:
         profile_id = "suffixed-investment-columns"
-    elif has_unsuffixed_shares:
+        number_of_shares_column = "ZNUMBEROFSHARES1"
+        price_per_share_column = "ZPRICEPERSHARE1"
+    elif has_unsuffixed_shares and has_unsuffixed_price:
         profile_id = "unsuffixed-investment-columns"
-    else:
-        profile_id = "unknown"
-
-    return SchemaProfile(
-        profile_id=profile_id,
-        number_of_shares_column=(
+        number_of_shares_column = "ZNUMBEROFSHARES"
+        price_per_share_column = "ZPRICEPERSHARE"
+    elif (
+        has_suffixed_shares or has_unsuffixed_shares
+    ) and (
+        has_suffixed_price or has_unsuffixed_price
+    ):
+        profile_id = "mixed-investment-columns"
+        number_of_shares_column = (
             "ZNUMBEROFSHARES1"
             if has_suffixed_shares
             else "ZNUMBEROFSHARES"
-            if has_unsuffixed_shares
-            else None
-        ),
-        price_per_share_column=(
+        )
+        price_per_share_column = (
             "ZPRICEPERSHARE1"
-            if has_suffixed_shares and has_suffixed_price
+            if has_suffixed_price
             else "ZPRICEPERSHARE"
-            if has_unsuffixed_shares and has_unsuffixed_price
-            else None
-        ),
+        )
+    else:
+        profile_id = "unknown"
+        number_of_shares_column = None
+        price_per_share_column = None
+
+    return SchemaProfile(
+        profile_id=profile_id,
+        number_of_shares_column=number_of_shares_column,
+        price_per_share_column=price_per_share_column,
     )
