@@ -15,10 +15,17 @@ from moneywiz_api.schema_profile import SchemaProfile
 
 UNSUFFIXED_PROFILE = SchemaProfile(
     profile_id="unsuffixed-investment-columns",
-    number_of_shares_column="ZNUMBEROFSHARES",
+    holding_number_of_shares_column="ZNUMBEROFSHARES",
+    transaction_number_of_shares_column="ZNUMBEROFSHARES",
     price_per_share_column="ZPRICEPERSHARE",
 )
-UNKNOWN_PROFILE = SchemaProfile("unknown", None, None)
+MIXED_PROFILE = SchemaProfile(
+    profile_id="mixed-investment-columns",
+    holding_number_of_shares_column="ZNUMBEROFSHARES",
+    transaction_number_of_shares_column="ZNUMBEROFSHARES1",
+    price_per_share_column="ZPRICEPERSHARE1",
+)
+UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None)
 
 
 def investment_transaction_row(ent: int, amount: float) -> dict:
@@ -78,6 +85,26 @@ def test_transactions_use_selected_profile_alias(constructor, row) -> None:
 def test_holding_uses_selected_profile_alias() -> None:
     holding = InvestmentHolding(investment_holding_row(), UNSUFFIXED_PROFILE)
 
+    assert holding.number_of_shares == Decimal("2.0")
+
+
+@pytest.mark.parametrize(
+    ("constructor", "transaction_row"),
+    [
+        (InvestmentBuyTransaction, investment_transaction_row(40, -9.0)),
+        (InvestmentSellTransaction, investment_transaction_row(41, 9.0)),
+    ],
+)
+def test_mixed_profile_uses_consumer_specific_share_aliases(
+    constructor, transaction_row
+) -> None:
+    holding_row = investment_holding_row()
+
+    transaction = constructor(transaction_row, MIXED_PROFILE)
+    holding = InvestmentHolding(holding_row, MIXED_PROFILE)
+
+    assert transaction.number_of_shares == Decimal("9.0")
+    assert transaction.price_per_share == Decimal("1.0")
     assert holding.number_of_shares == Decimal("2.0")
 
 

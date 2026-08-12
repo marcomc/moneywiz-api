@@ -52,7 +52,7 @@ class InvestmentHolding(Record):
         )
         self.number_of_shares = RDH.get_profile_nullable_decimal(
             row,
-            schema_profile.number_of_shares_column if schema_profile else None,
+            schema_profile.holding_number_of_shares_column if schema_profile else None,
             "ZNUMBEROFSHARES",
             "ZNUMBEROFSHARES1",
         )

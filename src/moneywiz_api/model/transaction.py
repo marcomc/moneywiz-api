@@ -182,7 +182,9 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         self.investment_holding = row["ZINVESTMENTHOLDING"]
         self.number_of_shares = RDH.get_profile_decimal(
             row,
-            schema_profile.number_of_shares_column if schema_profile else None,
+            schema_profile.transaction_number_of_shares_column
+            if schema_profile
+            else None,
             "ZNUMBEROFSHARES1",
             "ZNUMBEROFSHARES",
         )
@@ -247,7 +249,9 @@ class InvestmentSellTransaction(InvestmentTransaction):
         self.investment_holding = row["ZINVESTMENTHOLDING"]
         self.number_of_shares = RDH.get_profile_decimal(
             row,
-            schema_profile.number_of_shares_column if schema_profile else None,
+            schema_profile.transaction_number_of_shares_column
+            if schema_profile
+            else None,
             "ZNUMBEROFSHARES1",
             "ZNUMBEROFSHARES",
         )
@@ -506,9 +510,7 @@ class TransferWithdrawTransaction(Transaction):
                 raise ValueError(
                     "cannot reconstruct a transfer amount with a zero exchange rate"
                 )
-            self.original_amount = -abs(
-                self.recipient_amount / self.original_exchange_rate
-            )
+            self.original_amount = self.amount
 
         # Validate
         self.validate()
