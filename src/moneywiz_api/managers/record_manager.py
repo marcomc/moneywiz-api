@@ -29,7 +29,9 @@ class RecordManager(ABC, Generic[T]):
             typename = db_accessor.typename_for(record["Z_ENT"])
             if typename in self.ents:
                 try:
-                    obj = self.ents[typename](record)
+                    obj = self.construct_record(
+                        self.ents[typename], record, db_accessor
+                    )
                 except (AssertionError, KeyError, ValueError) as exc:
                     record_id = record.get("Z_PK")
                     detail = type(exc).__name__
@@ -42,6 +44,12 @@ class RecordManager(ABC, Generic[T]):
                     )
                     continue
                 self.add(obj)
+
+    def construct_record(
+        self, constructor: Callable, record, db_accessor: DatabaseAccessor
+    ):
+        """Construct a record; subclasses can supply schema-specific context."""
+        return constructor(record)
 
     def add(self, record: T) -> None:
         self._records[record.id] = record

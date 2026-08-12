@@ -5,6 +5,11 @@ from typing import Dict, List, Any, Callable, Tuple
 from decimal import Decimal
 
 from moneywiz_api.model.record import Record
+from moneywiz_api.model.investment_holding import InvestmentHolding
+from moneywiz_api.model.transaction import (
+    InvestmentBuyTransaction,
+    InvestmentSellTransaction,
+)
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.schema_profile import SchemaProfile, detect_schema_profile
 from moneywiz_api.types import ENT_ID, ID, GID
@@ -74,6 +79,16 @@ class DatabaseAccessor:
         )
         return res.fetchall()
 
+    def _construct_record(self, row, constructor: Callable):
+        investment_constructors = {
+            InvestmentBuyTransaction,
+            InvestmentSellTransaction,
+            InvestmentHolding,
+        }
+        if constructor in investment_constructors:
+            return constructor(row, schema_profile=self.schema_profile)
+        return constructor(row)
+
     def get_record(self, pk_id: ID, constructor: Callable = Record):
         cur = self._con.cursor()
         res = cur.execute(
@@ -84,7 +99,7 @@ class DatabaseAccessor:
             [pk_id],
         )
 
-        return constructor(res.fetchone())
+        return self._construct_record(res.fetchone(), constructor)
 
     def get_record_by_gid(self, gid: GID, constructor: Callable = Record):
         cur = self._con.cursor()
@@ -96,7 +111,7 @@ class DatabaseAccessor:
             [gid],
         )
 
-        return constructor(res.fetchone())
+        return self._construct_record(res.fetchone(), constructor)
 
     def get_category_assignment(self) -> Dict[ID, List[Tuple[ID, Decimal]]]:
         transaction_map: Dict[ID, List[Tuple[ID, Decimal]]] = defaultdict(list)

@@ -8,6 +8,7 @@ import pytest
 
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
+from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
 
 ABS_TOLERANCE = 0.001
@@ -169,19 +170,27 @@ class InvestmentBuyTransaction(InvestmentTransaction):
     number_of_shares: Decimal
     price_per_share: Decimal
 
-    def __init__(self, row):
+    def __init__(self, row, schema_profile: SchemaProfile | None = None):
         super().__init__(row)
+        if schema_profile is not None and not schema_profile.is_known:
+            raise ValueError("unsupported investment schema profile")
         self.account = row["ZACCOUNT2"]
         self.amount = RDH.get_decimal(row, "ZAMOUNT1")
 
         self.fee = RDH.get_decimal(row, "ZFEE2")
 
         self.investment_holding = row["ZINVESTMENTHOLDING"]
-        self.number_of_shares = RDH.get_decimal_alias(
-            row, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
+        self.number_of_shares = RDH.get_profile_decimal(
+            row,
+            schema_profile.number_of_shares_column if schema_profile else None,
+            "ZNUMBEROFSHARES1",
+            "ZNUMBEROFSHARES",
         )
-        self.price_per_share = RDH.get_decimal_alias(
-            row, "ZPRICEPERSHARE1", "ZPRICEPERSHARE"
+        self.price_per_share = RDH.get_profile_decimal(
+            row,
+            schema_profile.price_per_share_column if schema_profile else None,
+            "ZPRICEPERSHARE1",
+            "ZPRICEPERSHARE",
         )
 
         # Fixes
@@ -226,19 +235,27 @@ class InvestmentSellTransaction(InvestmentTransaction):
     number_of_shares: Decimal
     price_per_share: Decimal
 
-    def __init__(self, row):
+    def __init__(self, row, schema_profile: SchemaProfile | None = None):
         super().__init__(row)
+        if schema_profile is not None and not schema_profile.is_known:
+            raise ValueError("unsupported investment schema profile")
         self.account = row["ZACCOUNT2"]
         self.amount = RDH.get_decimal(row, "ZAMOUNT1")
 
         self.fee = RDH.get_decimal(row, "ZFEE2")
 
         self.investment_holding = row["ZINVESTMENTHOLDING"]
-        self.number_of_shares = RDH.get_decimal_alias(
-            row, "ZNUMBEROFSHARES1", "ZNUMBEROFSHARES"
+        self.number_of_shares = RDH.get_profile_decimal(
+            row,
+            schema_profile.number_of_shares_column if schema_profile else None,
+            "ZNUMBEROFSHARES1",
+            "ZNUMBEROFSHARES",
         )
-        self.price_per_share = RDH.get_decimal_alias(
-            row, "ZPRICEPERSHARE1", "ZPRICEPERSHARE"
+        self.price_per_share = RDH.get_profile_decimal(
+            row,
+            schema_profile.price_per_share_column if schema_profile else None,
+            "ZPRICEPERSHARE1",
+            "ZPRICEPERSHARE",
         )
 
         # Fixes

@@ -1,10 +1,10 @@
 from moneywiz_api import MoneywizApi
-from tests.integration.test_config import (
-    # BALANCE_AS_OF_DATE,
-    # CASH_BALANCES,
-    # HOLDINGS_BALANCES,
-    TEST_DB_PATH,
-)
+from tests.integration import test_config
+
+BALANCE_AS_OF_DATE = test_config.BALANCE_AS_OF_DATE
+CASH_BALANCES = test_config.CASH_BALANCES
+HOLDINGS_BALANCES = test_config.HOLDINGS_BALANCES
+TEST_DB_PATH = test_config.TEST_DB_PATH
 
 moneywizApi = MoneywizApi(TEST_DB_PATH)
 
