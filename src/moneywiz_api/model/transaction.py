@@ -21,6 +21,7 @@ ABS_TOLERANCE = Decimal("0.001")
 def approx_equal(a: Decimal, b: Decimal, abs_tol: Decimal = ABS_TOLERANCE) -> bool:
     return abs(a - b) <= abs_tol
 
+
 @dataclass
 class Transaction(Record, ABC):
     FIELDS = {
@@ -524,6 +525,17 @@ class TransferWithdrawTransaction(Transaction):
             self.recipient_amount = -self.original_amount * self.original_exchange_rate
         if self.recipient_amount is not None:
             self.recipient_amount = abs(self.recipient_amount)
+        if (
+            self.original_amount == 0
+            and self.recipient_amount not in (None, Decimal(0))
+        ):
+            if self.original_exchange_rate == 0:
+                raise ValueError(
+                    "cannot reconstruct a transfer amount with a zero exchange rate"
+                )
+            self.original_amount = -abs(
+                self.recipient_amount / self.original_exchange_rate
+            )
 
     def validate(self) -> None:
         super().validate()
