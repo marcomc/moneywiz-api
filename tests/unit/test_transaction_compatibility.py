@@ -45,6 +45,18 @@ def test_transfer_withdraw_reconstructs_with_nonzero_rate() -> None:
     assert transaction.original_amount == Decimal("-10.0")
 
 
+def test_transfer_withdraw_preserves_stored_amount_with_rounded_rate() -> None:
+    transaction = TransferWithdrawTransaction(
+        transfer_withdraw_row(
+            ZAMOUNT1=-3.333,
+            ZORIGINALRECIPIENTAMOUNT=10.0,
+            ZORIGINALEXCHANGERATE=3.0,
+        )
+    )
+
+    assert transaction.original_amount == Decimal("-3.333")
+
+
 class TransferWithdrawManager(RecordManager):
     @property
     def ents(self):
