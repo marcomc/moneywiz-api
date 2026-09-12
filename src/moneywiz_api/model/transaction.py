@@ -38,10 +38,10 @@ class Transaction(Record, ABC):
         # Fixes
 
         # Validate
-        assert self.reconciled is not None, self.as_dict()
-        assert self.amount is not None, self.as_dict()
-        assert self.description is not None, self.as_dict()
-        assert self.datetime is not None, self.as_dict()
+        assert self.reconciled is not None
+        assert self.amount is not None
+        assert self.description is not None
+        assert self.datetime is not None
         # self.notes can be None
 
 
@@ -190,7 +190,9 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         )
         self.price_per_share = RDH.get_profile_decimal(
             row,
-            schema_profile.price_per_share_column if schema_profile else None,
+            schema_profile.transaction_price_per_share_column
+            if schema_profile
+            else None,
             "ZPRICEPERSHARE1",
             "ZPRICEPERSHARE",
         )
@@ -257,7 +259,9 @@ class InvestmentSellTransaction(InvestmentTransaction):
         )
         self.price_per_share = RDH.get_profile_decimal(
             row,
-            schema_profile.price_per_share_column if schema_profile else None,
+            schema_profile.transaction_price_per_share_column
+            if schema_profile
+            else None,
             "ZPRICEPERSHARE1",
             "ZPRICEPERSHARE",
         )

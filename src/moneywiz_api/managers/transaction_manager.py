@@ -1,4 +1,5 @@
 from datetime import datetime
+from dataclasses import replace
 from typing import Dict, Callable, List, Tuple
 from decimal import Decimal
 
@@ -17,6 +18,7 @@ from moneywiz_api.model.transaction import (
     WithdrawTransaction,
 )
 from moneywiz_api.managers.record_manager import RecordManager
+from moneywiz_api.read_result import ManagerLoadReport
 from moneywiz_api.types import ID
 
 
@@ -25,7 +27,7 @@ class TransactionManager(RecordManager[Transaction]):
         super().__init__()
         self.category_assignment: Dict[ID, List[Tuple[ID, Decimal]]] = {}
         self.refund_maps: Dict[ID, ID] = {}
-        self.tags_map: Dict[ID, ID] = {}
+        self.tags_map: Dict[ID, List[ID]] = {}
 
     @property
     def ents(self) -> Dict[str, Callable]:
@@ -42,6 +44,10 @@ class TransactionManager(RecordManager[Transaction]):
             "WithdrawTransaction": WithdrawTransaction,
         }
 
+    @property
+    def entity_roots(self) -> tuple[str, ...]:
+        return ("Transaction",)
+
     def construct_record(
         self, constructor: Callable, record, db_accessor: DatabaseAccessor
     ):
@@ -53,13 +59,26 @@ class TransactionManager(RecordManager[Transaction]):
             return constructor(record, schema_profile=db_accessor.schema_profile)
         return super().construct_record(constructor, record, db_accessor)
 
-    def load(self, db_accessor: DatabaseAccessor) -> None:
-        super().load(db_accessor)
-        self.category_assignment: Dict[ID, List[Tuple[ID, Decimal]]] = (
-            db_accessor.get_category_assignment()
+    def load(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
+        self.category_assignment = {}
+        self.refund_maps = {}
+        self.tags_map = {}
+        report = super().load(db_accessor)
+        category_assignment, category_report = db_accessor.read_category_assignments()
+        refund_maps, refund_report = db_accessor.read_refund_maps()
+        tags_map, tags_report = db_accessor.read_tags_map()
+        self.category_assignment = category_assignment
+        self.refund_maps = refund_maps
+        self.tags_map = tags_map
+        self._load_report = replace(
+            report,
+            relationships={
+                "category_assignments": category_report,
+                "refund_links": refund_report,
+                "transaction_tags": tags_report,
+            },
         )
-        self.refund_maps: Dict[ID, ID] = db_accessor.get_refund_maps()
-        self.tags_map: Dict[ID, ID] = db_accessor.get_tags_map()
+        return self._load_report
 
     def category_for_transaction(
         self, transaction_id: ID

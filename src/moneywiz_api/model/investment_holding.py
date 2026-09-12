@@ -18,7 +18,7 @@ class InvestmentHolding(Record):
     opening_number_of_shares: Optional[Decimal]
 
     number_of_shares: Decimal
-    # price_per_share: Decimal
+    price_per_share: Optional[Decimal]
     symbol: str
     holding_type: Optional[str]
     description: str
@@ -56,7 +56,12 @@ class InvestmentHolding(Record):
             "ZNUMBEROFSHARES",
             "ZNUMBEROFSHARES1",
         )
-        # self.price_per_share = row["ZPRICEPERSHARE"]
+        self.price_per_share = RDH.get_profile_nullable_decimal(
+            row,
+            schema_profile.holding_price_per_share_column if schema_profile else None,
+            "ZPRICEPERSHARE",
+            "ZPRICEPERSHARE1",
+        )
         self.symbol = row["ZSYMBOL"]
         self.holding_type = row["ZHOLDINGTYPE"]
         self.description = row["ZDESC"]
@@ -69,16 +74,13 @@ class InvestmentHolding(Record):
             row, "ZCOSTBASISOFMISSINGOBSHARES"
         )
 
-        # Fixes
-        self.number_of_shares = self.number_of_shares or Decimal(0)
-
         # Validate
         self.validate()
 
     def validate(self):
         assert self.account is not None, self.as_dict()
         assert self.number_of_shares is not None, self.as_dict()
-        # assert self.price_per_share is not None
+        # price_per_share can be None when no current quote is stored.
         assert self.symbol is not None, self.as_dict()
         assert self.description is not None, self.as_dict()
 

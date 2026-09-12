@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
-_CUTOFF = datetime(2001, 1, 1, 0, 0, 0).timestamp()
+_APPLE_EPOCH_TIMESTAMP = datetime(2001, 1, 1, tzinfo=timezone.utc).timestamp()
 
 
 def get_datetime(date: float) -> datetime:
-    return datetime.fromtimestamp(date + _CUTOFF)
+    """Convert an absolute Core Data timestamp to a naive local datetime."""
+    return datetime.fromtimestamp(date + _APPLE_EPOCH_TIMESTAMP)
 
 
 def get_date_iso(date: float) -> str:
@@ -12,4 +13,5 @@ def get_date_iso(date: float) -> str:
 
 
 def get_date(dt: datetime) -> float:
-    return dt.timestamp() - _CUTOFF
+    """Convert an aware instant or naive local datetime to Core Data seconds."""
+    return dt.timestamp() - _APPLE_EPOCH_TIMESTAMP

@@ -1,0 +1,217 @@
+"""Structured results for bounded MoneyWiz reads."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum
+from pathlib import Path
+from typing import Any, Mapping
+
+from moneywiz_api.types import ID
+
+
+class LoadErrorKind(str, Enum):
+    """Bounded classifications for records omitted from a read."""
+
+    MISSING_FIELD = "missing_field"
+    INVALID_VALUE = "invalid_value"
+    VALIDATION = "validation"
+    DUPLICATE_ID = "duplicate_id"
+    DUPLICATE_GID = "duplicate_gid"
+    UNKNOWN_ENTITY = "unknown_entity"
+    CONSTRUCTION = "construction"
+
+
+class RelationshipStorage(str, Enum):
+    """Whether relationship storage is available and understood."""
+
+    PRESENT = "present"
+    ABSENT = "absent"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class SkippedRecord:
+    """Identity-only diagnostic for one source row that was not parsed."""
+
+    record_id: ID | str | None
+    entity: str | None
+    error: LoadErrorKind
+    exception_type: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "record_id": self.record_id,
+            "entity": self.entity,
+            "error": self.error.value,
+            "exception_type": self.exception_type,
+        }
+
+
+@dataclass(frozen=True)
+class RelationshipLoadReport:
+    """Completeness evidence for one relationship storage layout."""
+
+    storage: RelationshipStorage
+    storage_name: str | None = None
+    source_ids: tuple[ID | str | None, ...] = ()
+    parsed_ids: tuple[ID | str, ...] = ()
+    skipped: tuple[SkippedRecord, ...] = ()
+
+    @property
+    def source_count(self) -> int:
+        return len(self.source_ids)
+
+    @property
+    def parsed_count(self) -> int:
+        return len(self.parsed_ids)
+
+    @property
+    def complete(self) -> bool:
+        return (
+            self.storage != RelationshipStorage.UNKNOWN
+            and self.source_count == self.parsed_count
+            and not self.skipped
+        )
+
+    @property
+    def status(self) -> str:
+        if self.storage == RelationshipStorage.ABSENT:
+            return "absent"
+        if self.complete:
+            return "complete"
+        if self.parsed_count:
+            return "partial"
+        return "error"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "complete": self.complete,
+            "storage": self.storage.value,
+            "storage_name": self.storage_name,
+            "source_count": self.source_count,
+            "parsed_count": self.parsed_count,
+            "source_ids": list(self.source_ids),
+            "parsed_ids": list(self.parsed_ids),
+            "skipped": [item.as_dict() for item in self.skipped],
+        }
+
+
+@dataclass(frozen=True)
+class ManagerLoadReport:
+    """Completeness evidence for one manager load."""
+
+    source_ids: tuple[ID | None, ...] = ()
+    parsed_ids: tuple[ID, ...] = ()
+    skipped: tuple[SkippedRecord, ...] = ()
+    relationships: Mapping[str, RelationshipLoadReport] = field(default_factory=dict)
+
+    @property
+    def source_count(self) -> int:
+        return len(self.source_ids)
+
+    @property
+    def parsed_count(self) -> int:
+        return len(self.parsed_ids)
+
+    @property
+    def complete(self) -> bool:
+        return (
+            self.source_count == self.parsed_count
+            and not self.skipped
+            and all(report.complete for report in self.relationships.values())
+        )
+
+    @property
+    def status(self) -> str:
+        if self.complete:
+            return "complete"
+        if self.parsed_count or any(
+            report.parsed_count for report in self.relationships.values()
+        ):
+            return "partial"
+        return "error"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "complete": self.complete,
+            "source_count": self.source_count,
+            "parsed_count": self.parsed_count,
+            "source_ids": list(self.source_ids),
+            "parsed_ids": list(self.parsed_ids),
+            "skipped": [item.as_dict() for item in self.skipped],
+            "relationships": {
+                name: report.as_dict() for name, report in self.relationships.items()
+            },
+        }
+
+
+@dataclass(frozen=True)
+class ApiCompleteness:
+    """Aggregate completeness for the managers included in a read."""
+
+    managers: Mapping[str, ManagerLoadReport]
+
+    @property
+    def complete(self) -> bool:
+        return bool(self.managers) and all(
+            report.complete for report in self.managers.values()
+        )
+
+    @property
+    def status(self) -> str:
+        if self.complete:
+            return "complete"
+        if self.managers and all(
+            report.status == "error" for report in self.managers.values()
+        ):
+            return "error"
+        return "partial"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "complete": self.complete,
+            "managers": {
+                name: report.as_dict() for name, report in self.managers.items()
+            },
+        }
+
+
+@dataclass(frozen=True)
+class ReadSnapshot:
+    """JSON-safe records and completeness metadata from one API instance."""
+
+    records: Mapping[str, tuple[dict[str, Any], ...]]
+    completeness: ApiCompleteness
+    schema_profile: Mapping[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema_profile": dict(self.schema_profile),
+            "completeness": self.completeness.as_dict(),
+            "records": {name: list(records) for name, records in self.records.items()},
+        }
+
+
+def json_safe(value: Any) -> Any:
+    """Convert public model values into deterministic JSON-compatible values."""
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if hasattr(value, "__dataclass_fields__"):
+        return json_safe(asdict(value))
+    if isinstance(value, Mapping):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [json_safe(item) for item in value]
+    return value

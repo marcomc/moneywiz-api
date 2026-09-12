@@ -11,21 +11,24 @@ from moneywiz_api.model.transaction import (
     InvestmentSellTransaction,
 )
 from moneywiz_api.schema_profile import SchemaProfile
+from moneywiz_api.read_result import RelationshipLoadReport, RelationshipStorage
 
 
 UNSUFFIXED_PROFILE = SchemaProfile(
     profile_id="unsuffixed-investment-columns",
     holding_number_of_shares_column="ZNUMBEROFSHARES",
     transaction_number_of_shares_column="ZNUMBEROFSHARES",
-    price_per_share_column="ZPRICEPERSHARE",
+    holding_price_per_share_column="ZPRICEPERSHARE",
+    transaction_price_per_share_column="ZPRICEPERSHARE",
 )
 MIXED_PROFILE = SchemaProfile(
     profile_id="mixed-investment-columns",
     holding_number_of_shares_column="ZNUMBEROFSHARES",
     transaction_number_of_shares_column="ZNUMBEROFSHARES1",
-    price_per_share_column="ZPRICEPERSHARE1",
+    holding_price_per_share_column="ZPRICEPERSHARE",
+    transaction_price_per_share_column="ZPRICEPERSHARE1",
 )
-UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None)
+UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None, None)
 
 
 def investment_transaction_row(ent: int, amount: float) -> dict:
@@ -59,6 +62,8 @@ def investment_holding_row() -> dict:
         "ZOPENNINGNUMBEROFSHARES": None,
         "ZNUMBEROFSHARES": 2.0,
         "ZNUMBEROFSHARES1": 9.0,
+        "ZPRICEPERSHARE": 10.0,
+        "ZPRICEPERSHARE1": 1.0,
         "ZSYMBOL": "ACME",
         "ZHOLDINGTYPE": None,
         "ZDESC": "Acme Corp.",
@@ -86,6 +91,7 @@ def test_holding_uses_selected_profile_alias() -> None:
     holding = InvestmentHolding(investment_holding_row(), UNSUFFIXED_PROFILE)
 
     assert holding.number_of_shares == Decimal("2.0")
+    assert holding.price_per_share == Decimal("10.0")
 
 
 @pytest.mark.parametrize(
@@ -106,6 +112,7 @@ def test_mixed_profile_uses_consumer_specific_share_aliases(
     assert transaction.number_of_shares == Decimal("9.0")
     assert transaction.price_per_share == Decimal("1.0")
     assert holding.number_of_shares == Decimal("2.0")
+    assert holding.price_per_share == Decimal("10.0")
 
 
 class ProfileAccessor:
@@ -133,17 +140,20 @@ class ManagerAccessor(ProfileAccessor):
     def query_objects(self, _typenames):
         return [self.row]
 
+    def descendant_typenames(self, _roots):
+        return [self.typename]
+
     def typename_for(self, _ent_id):
         return self.typename
 
-    def get_category_assignment(self):
-        return {}
+    def read_category_assignments(self):
+        return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
-    def get_refund_maps(self):
-        return {}
+    def read_refund_maps(self):
+        return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
-    def get_tags_map(self):
-        return {}
+    def read_tags_map(self):
+        return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
 
 def test_managers_load_profiled_investment_records() -> None:

@@ -1,6 +1,7 @@
 from abc import ABC
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Optional
 
 from moneywiz_api.types import ID
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
@@ -19,7 +20,7 @@ class Account(Record, ABC):
     name: str
     currency: str
     opening_balance: Decimal  # might be a tiny number
-    info: str
+    info: Optional[str]
     user: ID
 
     def __init__(self, row):
@@ -30,20 +31,18 @@ class Account(Record, ABC):
         self.name = row["ZNAME"]
         self.currency = row["ZCURRENCYNAME"]
         self.opening_balance = RDH.get_decimal(row, "ZOPENINGBALANCE")
-        self.info = row["ZINFO"]
+        self.info = row.get("ZINFO")
 
         self.user = row["ZUSER"]
 
-        # Fixes
-
-        # Validate
-        assert self.display_order is not None, self.as_dict()
-        assert self.group_id is not None, self.as_dict()
-        assert self.name is not None, self.as_dict()
-        assert self.currency is not None, self.as_dict()
-        assert self.opening_balance is not None, self.as_dict()
-        assert self.info is not None, self.as_dict()
-        assert self.user is not None, self.as_dict()
+    def validate(self) -> None:
+        assert self.display_order is not None
+        assert self.group_id is not None
+        assert self.name is not None
+        assert self.currency is not None
+        assert self.opening_balance is not None
+        # info is nullable in valid MoneyWiz stores.
+        assert self.user is not None
 
 
 @dataclass
@@ -88,7 +87,8 @@ class CreditCardAccount(Account):
         super().__init__(row)
         self.statement_day = row["ZSTATEMENTENDDAY"]
 
-        # Validate
+    def validate(self) -> None:
+        super().validate()
         assert self.statement_day is not None
 
 
