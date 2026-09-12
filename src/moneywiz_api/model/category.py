@@ -3,6 +3,7 @@ from typing import Optional
 
 from moneywiz_api.model.record import Record
 from moneywiz_api.types import CategoryType, ID
+from moneywiz_api.validation import require_valid
 
 
 @dataclass
@@ -26,9 +27,9 @@ class Category(Record):
         # Fixes
 
         # Validate
-        assert self.name is not None, self.as_dict()
-        assert self.type is not None, self.as_dict()
-        assert self.user is not None, self.as_dict()
+        require_valid(self.name is not None, "category name is required")
+        require_valid(self.type is not None, "category type is required")
+        require_valid(self.user is not None, "category owner is required")
 
     @staticmethod
     def _convert_type(type_: Optional[int]) -> CategoryType:

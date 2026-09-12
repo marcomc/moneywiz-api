@@ -6,6 +6,7 @@ from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
 from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
+from moneywiz_api.validation import require_valid
 
 
 @dataclass
@@ -78,14 +79,20 @@ class InvestmentHolding(Record):
         self.validate()
 
     def validate(self):
-        assert self.account is not None, self.as_dict()
-        assert self.number_of_shares is not None, self.as_dict()
+        require_valid(self.account is not None, "holding account is required")
+        require_valid(self.number_of_shares is not None, "holding quantity is required")
         # price_per_share can be None when no current quote is stored.
-        assert self.symbol is not None, self.as_dict()
-        assert self.description is not None, self.as_dict()
+        require_valid(self.symbol is not None, "holding symbol is required")
+        require_valid(self.description is not None, "holding description is required")
 
-        assert self._investment_object_type is not None, self.as_dict()
-        assert self._cost_basis_of_missing_ob_shares is not None, self.as_dict()
+        require_valid(
+            self._investment_object_type is not None,
+            "holding investment object type is required",
+        )
+        require_valid(
+            self._cost_basis_of_missing_ob_shares is not None,
+            "holding missing-share cost basis is required",
+        )
 
     def as_dict(self) -> Dict[str, Any]:
         original = super().as_dict()

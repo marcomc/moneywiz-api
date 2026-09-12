@@ -4,6 +4,7 @@ from datetime import datetime
 
 from moneywiz_api.types import ID, ENT_ID
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
+from moneywiz_api.validation import require_valid
 
 
 @dataclass
@@ -24,11 +25,11 @@ class Record:
         # Fixes
 
         # Validate
-        assert self._raw
-        assert self._ent
-        assert self._created_at
-        assert self.gid
-        assert self.id
+        require_valid(self._raw, "record source must not be empty")
+        require_valid(self._ent, "record entity must be set")
+        require_valid(self._created_at, "record creation date must be set")
+        require_valid(self.gid, "record global identity must be set")
+        require_valid(self.id, "record identity must be set")
 
     def ent(self) -> ENT_ID:
         return self._ent

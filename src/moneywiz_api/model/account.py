@@ -6,6 +6,7 @@ from typing import Optional
 from moneywiz_api.types import ID
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
+from moneywiz_api.validation import require_valid
 
 
 @dataclass
@@ -36,13 +37,17 @@ class Account(Record, ABC):
         self.user = row["ZUSER"]
 
     def validate(self) -> None:
-        assert self.display_order is not None
-        assert self.group_id is not None
-        assert self.name is not None
-        assert self.currency is not None
-        assert self.opening_balance is not None
+        require_valid(
+            self.display_order is not None, "account display order is required"
+        )
+        require_valid(self.group_id is not None, "account group identity is required")
+        require_valid(self.name is not None, "account name is required")
+        require_valid(self.currency is not None, "account currency is required")
+        require_valid(
+            self.opening_balance is not None, "account opening balance is required"
+        )
         # info is nullable in valid MoneyWiz stores.
-        assert self.user is not None
+        require_valid(self.user is not None, "account owner is required")
 
 
 @dataclass
@@ -89,7 +94,9 @@ class CreditCardAccount(Account):
 
     def validate(self) -> None:
         super().validate()
-        assert self.statement_day is not None
+        require_valid(
+            self.statement_day is not None, "account statement day is required"
+        )
 
 
 @dataclass

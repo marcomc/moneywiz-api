@@ -1,9 +1,11 @@
 import sqlite3
+import re
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Any, Callable, Tuple
 from decimal import Decimal
+from enum import Enum
 
 from moneywiz_api.model.record import Record
 from moneywiz_api.model.investment_holding import InvestmentHolding
@@ -20,6 +22,20 @@ from moneywiz_api.read_result import (
 )
 from moneywiz_api.schema_profile import SchemaProfile, detect_schema_profile
 from moneywiz_api.types import ENT_ID, ID, GID
+from moneywiz_api.validation import require_valid
+
+
+TRANSACTION_TAG_TABLE_RE = re.compile(r"Z_\d+TAGS")
+SUPPORTED_UNRELATED_TAG_TABLES = {
+    "Z_23TAGS": frozenset({"Z_23INFOCARDS5", "Z_35TAGS1"}),
+    "Z_31TAGS": frozenset({"Z_31SCHEDULEDTRANSACTIONS1", "Z_35TAGS2"}),
+}
+
+
+class _TagTableShape(Enum):
+    DIRECT = "direct"
+    UNRELATED = "unrelated"
+    AMBIGUOUS = "ambiguous"
 
 
 class DatabasePathError(ValueError):
@@ -162,13 +178,77 @@ class DatabaseAccessor:
         table_name: str,
         required_columns: tuple[str, ...],
     ) -> RelationshipStorage:
-        if any(self.ent_for(name) is None for name in entity_names):
+        metadata_present = all(self.ent_for(name) is not None for name in entity_names)
+        table_present = self._table_exists(table_name)
+        if not metadata_present and not table_present:
             return RelationshipStorage.ABSENT
-        if not self._table_exists(table_name):
+        if not metadata_present or not table_present:
             return RelationshipStorage.UNKNOWN
         if not set(required_columns).issubset(self._table_columns(table_name)):
             return RelationshipStorage.UNKNOWN
         return RelationshipStorage.PRESENT
+
+    def _classify_tag_table(self, table_name: str) -> _TagTableShape:
+        """Classify an exact evidenced shape; a matching name alone is insufficient."""
+        columns = frozenset(self._table_columns(table_name))
+        if columns == SUPPORTED_UNRELATED_TAG_TABLES.get(table_name):
+            return _TagTableShape.UNRELATED
+        transaction_ent = self.ent_for("Transaction")
+        tag_ent = self.ent_for("Tag")
+        if (
+            transaction_ent is not None
+            and tag_ent is not None
+            and table_name == f"Z_{transaction_ent}TAGS"
+            and columns == {f"Z_{transaction_ent}TRANSACTIONS", f"Z_{tag_ent}TAGS"}
+        ):
+            return _TagTableShape.DIRECT
+        return _TagTableShape.AMBIGUOUS
+
+    def _transaction_tag_candidates(self) -> tuple[str, ...]:
+        """Return bounded tables that could store direct transaction-tag links."""
+        rows = self._con.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
+        ).fetchall()
+        candidates: list[str] = []
+        for row in rows:
+            table_name = row["name"]
+            if not isinstance(
+                table_name, str
+            ) or not TRANSACTION_TAG_TABLE_RE.fullmatch(table_name):
+                continue
+            if self._classify_tag_table(table_name) == _TagTableShape.UNRELATED:
+                continue
+            candidates.append(table_name)
+        return tuple(candidates)
+
+    def _transaction_tag_storage(
+        self,
+    ) -> tuple[RelationshipStorage, str | None, str | None, str | None]:
+        transaction_ent = self.ent_for("Transaction")
+        tag_ent = self.ent_for("Tag")
+        candidates = self._transaction_tag_candidates()
+        metadata_count = sum(ent is not None for ent in (transaction_ent, tag_ent))
+        if metadata_count == 0:
+            storage = (
+                RelationshipStorage.UNKNOWN
+                if candidates
+                else RelationshipStorage.ABSENT
+            )
+            return storage, candidates[0] if len(candidates) == 1 else None, None, None
+        if metadata_count == 1:
+            return RelationshipStorage.UNKNOWN, None, None, None
+
+        table_name = f"Z_{transaction_ent}TAGS"
+        transaction_column = f"Z_{transaction_ent}TRANSACTIONS"
+        tag_column = f"Z_{tag_ent}TAGS"
+        if (
+            candidates == (table_name,)
+            and self._classify_tag_table(table_name) == _TagTableShape.DIRECT
+        ):
+            storage = RelationshipStorage.PRESENT
+        else:
+            storage = RelationshipStorage.UNKNOWN
+        return storage, table_name, transaction_column, tag_column
 
     @staticmethod
     def _relationship_error(exc: Exception) -> LoadErrorKind:
@@ -284,11 +364,19 @@ class DatabaseAccessor:
             source_id = row.get("Z_PK")
             source_ids.append(source_id)
             try:
-                assert source_id is not None
+                require_valid(
+                    source_id is not None, "category assignment ID is required"
+                )
                 category_id = row["ZCATEGORY"]
                 transaction_id = row["ZTRANSACTION"]
-                assert category_id is not None
-                assert transaction_id is not None
+                require_valid(
+                    category_id is not None,
+                    "category assignment category endpoint is required",
+                )
+                require_valid(
+                    transaction_id is not None,
+                    "category assignment transaction endpoint is required",
+                )
                 amount = RDH.get_decimal(row, "ZAMOUNT")
                 transaction_map[transaction_id].append((category_id, amount))
             except Exception as exc:
@@ -342,11 +430,15 @@ class DatabaseAccessor:
             source_id = row.get("Z_PK")
             source_ids.append(source_id)
             try:
-                assert source_id is not None
+                require_valid(source_id is not None, "refund link ID is required")
                 refund_id = row["ZREFUNDTRANSACTION"]
                 withdraw_id = row["ZWITHDRAWTRANSACTION"]
-                assert refund_id is not None
-                assert withdraw_id is not None
+                require_valid(
+                    refund_id is not None, "refund transaction endpoint is required"
+                )
+                require_valid(
+                    withdraw_id is not None, "withdraw transaction endpoint is required"
+                )
                 if refund_id in refund_to_withdraw:
                     raise ValueError()
                 refund_to_withdraw[refund_id] = withdraw_id
@@ -378,27 +470,21 @@ class DatabaseAccessor:
         self,
     ) -> tuple[Dict[ID, List[ID]], RelationshipLoadReport]:
         transactions_to_tags: Dict[ID, List[ID]] = defaultdict(list)
-        transaction_ent = self.ent_for("Transaction")
-        tag_ent = self.ent_for("Tag")
-        if transaction_ent is None or tag_ent is None:
-            return transactions_to_tags, RelationshipLoadReport(
-                storage=RelationshipStorage.ABSENT,
-            )
-
-        table_name = f"Z_{transaction_ent}TAGS"
-        transaction_column = f"Z_{transaction_ent}TRANSACTIONS"
-        tag_column = f"Z_{tag_ent}TAGS"
-        columns = (transaction_column, tag_column)
-        storage = self._relationship_storage(
-            entity_names=("Transaction", "Tag"),
-            table_name=table_name,
-            required_columns=columns,
+        storage, table_name, transaction_column, tag_column = (
+            self._transaction_tag_storage()
         )
         if storage != RelationshipStorage.PRESENT:
             return transactions_to_tags, RelationshipLoadReport(
                 storage=storage,
                 storage_name=table_name,
             )
+        require_valid(table_name is not None, "transaction-tag table is required")
+        require_valid(
+            transaction_column is not None,
+            "transaction-tag transaction column is required",
+        )
+        require_valid(tag_column is not None, "transaction-tag tag column is required")
+        columns = (transaction_column, tag_column)
 
         source_ids: list[str] = []
         parsed_ids: list[str] = []
@@ -416,8 +502,13 @@ class DatabaseAccessor:
             )
             source_ids.append(source_id)
             try:
-                assert transaction_id is not None
-                assert tag_id is not None
+                require_valid(
+                    transaction_id is not None,
+                    "transaction-tag transaction endpoint is required",
+                )
+                require_valid(
+                    tag_id is not None, "transaction-tag tag endpoint is required"
+                )
                 transactions_to_tags[transaction_id].append(tag_id)
             except Exception as exc:
                 skipped.append(

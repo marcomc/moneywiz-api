@@ -10,6 +10,7 @@ from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
 from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
+from moneywiz_api.validation import require_valid
 
 ABS_TOLERANCE = 0.001
 
@@ -38,10 +39,12 @@ class Transaction(Record, ABC):
         # Fixes
 
         # Validate
-        assert self.reconciled is not None
-        assert self.amount is not None
-        assert self.description is not None
-        assert self.datetime is not None
+        require_valid(self.reconciled is not None, "transaction state is required")
+        require_valid(self.amount is not None, "transaction amount is required")
+        require_valid(
+            self.description is not None, "transaction description is required"
+        )
+        require_valid(self.datetime is not None, "transaction date is required")
         # self.notes can be None
 
 
@@ -79,17 +82,29 @@ class DepositTransaction(Transaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None, self.as_dict()
-        assert self.amount is not None, self.as_dict()
+        require_valid(self.account is not None, "deposit account is required")
+        require_valid(self.amount is not None, "deposit amount is required")
         # self.payee can be None
-        assert self.original_currency is not None, self.as_dict()
-        assert self.original_amount is not None, self.as_dict()
+        require_valid(
+            self.original_currency is not None, "deposit original currency is required"
+        )
+        require_valid(
+            self.original_amount is not None, "deposit original amount is required"
+        )
 
-        assert self.amount * self.original_amount > 0, self.as_dict()  # Same sign
+        require_valid(
+            self.amount * self.original_amount > 0,
+            "deposit amounts must have the same sign",
+        )
         if self.original_exchange_rate is not None:
-            assert self.amount == pytest.approx(
-                self.original_amount * self.original_exchange_rate, abs=ABS_TOLERANCE
-            ), self.as_dict()
+            require_valid(
+                self.amount
+                == pytest.approx(
+                    self.original_amount * self.original_exchange_rate,
+                    abs=ABS_TOLERANCE,
+                ),
+                "deposit exchange rate must match the amounts",
+            )
 
 
 @dataclass
@@ -134,15 +149,30 @@ class InvestmentExchangeTransaction(Transaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert self.from_investment_holding is not None
-        assert self.from_symbol
-        assert self.to_investment_holding is not None
-        assert self.to_symbol
-        assert self.from_number_of_shares <= 0
-        assert self.to_number_of_shares >= 0
-        assert self.original_fee is not None
-        assert self.original_fee_currency in [self.from_symbol, self.to_symbol]
+        require_valid(self.account is not None, "exchange account is required")
+        require_valid(
+            self.from_investment_holding is not None,
+            "exchange source holding is required",
+        )
+        require_valid(self.from_symbol, "exchange source symbol is required")
+        require_valid(
+            self.to_investment_holding is not None,
+            "exchange destination holding is required",
+        )
+        require_valid(self.to_symbol, "exchange destination symbol is required")
+        require_valid(
+            self.from_number_of_shares <= 0,
+            "exchange source quantity must not be positive",
+        )
+        require_valid(
+            self.to_number_of_shares >= 0,
+            "exchange destination quantity must not be negative",
+        )
+        require_valid(self.original_fee is not None, "exchange fee is required")
+        require_valid(
+            self.original_fee_currency in [self.from_symbol, self.to_symbol],
+            "exchange fee currency must match one holding",
+        )
 
 
 @dataclass
@@ -204,24 +234,41 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert self.amount is not None
-        assert self.amount <= 0
-        assert self.fee is not None
-        assert self.fee >= 0
+        require_valid(self.account is not None, "investment buy account is required")
+        require_valid(self.amount is not None, "investment buy amount is required")
+        require_valid(self.amount <= 0, "investment buy amount must not be positive")
+        require_valid(self.fee is not None, "investment buy fee is required")
+        require_valid(self.fee >= 0, "investment buy fee must not be negative")
         # Either tiny (close to 0) or positive
-        assert (
+        require_valid(
             abs(self.fee) == pytest.approx(0, abs=ABS_TOLERANCE)
-            or self.fee > ABS_TOLERANCE
+            or self.fee > ABS_TOLERANCE,
+            "investment buy fee must be tiny or positive",
         )
-        assert self.investment_holding is not None
-        assert self.number_of_shares is not None
-        assert self.number_of_shares > 0
-        assert self.price_per_share is not None
-        assert self.price_per_share >= 0
-        assert -(
-            self.number_of_shares * self.price_per_share + self.fee
-        ) == pytest.approx(self.amount, abs=ABS_TOLERANCE)
+        require_valid(
+            self.investment_holding is not None,
+            "investment buy holding is required",
+        )
+        require_valid(
+            self.number_of_shares is not None,
+            "investment buy quantity is required",
+        )
+        require_valid(
+            self.number_of_shares > 0, "investment buy quantity must be positive"
+        )
+        require_valid(
+            self.price_per_share is not None,
+            "investment buy share price is required",
+        )
+        require_valid(
+            self.price_per_share >= 0,
+            "investment buy share price must not be negative",
+        )
+        require_valid(
+            -(self.number_of_shares * self.price_per_share + self.fee)
+            == pytest.approx(self.amount, abs=ABS_TOLERANCE),
+            "investment buy total must match amount",
+        )
 
 
 @dataclass
@@ -273,25 +320,42 @@ class InvestmentSellTransaction(InvestmentTransaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert self.amount is not None
+        require_valid(self.account is not None, "investment sell account is required")
+        require_valid(self.amount is not None, "investment sell amount is required")
 
-        assert self.fee is not None
-        assert self.fee >= 0
+        require_valid(self.fee is not None, "investment sell fee is required")
+        require_valid(self.fee >= 0, "investment sell fee must not be negative")
         # Either tiny (close to 0) or positive
-        assert (
+        require_valid(
             abs(self.fee) == pytest.approx(0, abs=ABS_TOLERANCE)
-            or self.fee > ABS_TOLERANCE
+            or self.fee > ABS_TOLERANCE,
+            "investment sell fee must be tiny or positive",
         )
 
-        assert self.investment_holding is not None
-        assert self.number_of_shares is not None
-        assert self.number_of_shares > 0
-        assert self.price_per_share is not None
-        assert self.price_per_share >= 0
-        assert (
+        require_valid(
+            self.investment_holding is not None,
+            "investment sell holding is required",
+        )
+        require_valid(
+            self.number_of_shares is not None,
+            "investment sell quantity is required",
+        )
+        require_valid(
+            self.number_of_shares > 0, "investment sell quantity must be positive"
+        )
+        require_valid(
+            self.price_per_share is not None,
+            "investment sell share price is required",
+        )
+        require_valid(
+            self.price_per_share >= 0,
+            "investment sell share price must not be negative",
+        )
+        require_valid(
             self.number_of_shares * self.price_per_share - self.fee
-        ) == pytest.approx(self.amount, abs=ABS_TOLERANCE)
+            == pytest.approx(self.amount, abs=ABS_TOLERANCE),
+            "investment sell total must match amount",
+        )
 
 
 @dataclass
@@ -317,10 +381,11 @@ class ReconcileTransaction(Transaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert (
+        require_valid(self.account is not None, "reconcile account is required")
+        require_valid(
             self.reconcile_amount is not None
-            or self.reconcile_number_of_shares is not None
+            or self.reconcile_number_of_shares is not None,
+            "reconcile amount or quantity is required",
         )
 
 
@@ -359,17 +424,28 @@ class RefundTransaction(Transaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert self.amount is not None
-        assert self.amount > 0
+        require_valid(self.account is not None, "refund account is required")
+        require_valid(self.amount is not None, "refund amount is required")
+        require_valid(self.amount > 0, "refund amount must be positive")
 
-        assert self.original_currency is not None
-        assert self.original_amount is not None
-        assert self.original_amount > 0
+        require_valid(
+            self.original_currency is not None, "refund original currency is required"
+        )
+        require_valid(
+            self.original_amount is not None, "refund original amount is required"
+        )
+        require_valid(
+            self.original_amount > 0, "refund original amount must be positive"
+        )
 
         if self.original_exchange_rate is not None:
-            assert self.amount == pytest.approx(
-                self.original_amount * self.original_exchange_rate, abs=ABS_TOLERANCE
+            require_valid(
+                self.amount
+                == pytest.approx(
+                    self.original_amount * self.original_exchange_rate,
+                    abs=ABS_TOLERANCE,
+                ),
+                "refund exchange rate must match the amounts",
             )
 
 
@@ -437,28 +513,62 @@ class TransferDepositTransaction(Transaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert self.amount is not None
-        assert self.amount > 0
-        assert self.sender_account is not None
-        assert self.sender_transaction is not None
-        assert self.original_amount is not None
-        assert self.original_amount > 0
-        assert self.original_currency is not None
-        assert self.sender_amount is not None
-        assert self.sender_amount <= 0
-        assert self.sender_currency is not None
+        require_valid(self.account is not None, "transfer deposit account is required")
+        require_valid(self.amount is not None, "transfer deposit amount is required")
+        require_valid(self.amount > 0, "transfer deposit amount must be positive")
+        require_valid(
+            self.sender_account is not None,
+            "transfer deposit sender account is required",
+        )
+        require_valid(
+            self.sender_transaction is not None,
+            "transfer deposit sender transaction is required",
+        )
+        require_valid(
+            self.original_amount is not None,
+            "transfer deposit original amount is required",
+        )
+        require_valid(
+            self.original_amount > 0,
+            "transfer deposit original amount must be positive",
+        )
+        require_valid(
+            self.original_currency is not None,
+            "transfer deposit original currency is required",
+        )
+        require_valid(
+            self.sender_amount is not None,
+            "transfer deposit sender amount is required",
+        )
+        require_valid(
+            self.sender_amount <= 0,
+            "transfer deposit sender amount must not be positive",
+        )
+        require_valid(
+            self.sender_currency is not None,
+            "transfer deposit sender currency is required",
+        )
 
         if self.original_fee is not None and self.original_fee != 0:
-            assert self.original_fee_currency is not None
+            require_valid(
+                self.original_fee_currency is not None,
+                "transfer deposit fee currency is required",
+            )
 
-        assert self.original_exchange_rate is not None
+        require_valid(
+            self.original_exchange_rate is not None,
+            "transfer deposit exchange rate is required",
+        )
 
         # assert self.amount ==  self.original_amount # original_amount could be different with amount ZCURRENCYEXCHANGERATE is playing up
-        assert self.original_amount == pytest.approx(
-            -self.sender_amount * self.original_exchange_rate
-            - (self.original_fee or 0),
-            abs=ABS_TOLERANCE,
+        require_valid(
+            self.original_amount
+            == pytest.approx(
+                -self.sender_amount * self.original_exchange_rate
+                - (self.original_fee or 0),
+                abs=ABS_TOLERANCE,
+            ),
+            "transfer deposit exchange rate must match the amounts",
         )
 
 
@@ -520,27 +630,66 @@ class TransferWithdrawTransaction(Transaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert self.amount is not None
-        assert self.amount < 0
-        assert self.recipient_account is not None
-        assert self.recipient_transaction is not None
-        assert self.original_amount is not None
-        assert self.original_amount < 0
-        assert self.original_currency is not None
-        assert self.recipient_amount is not None
-        assert self.recipient_amount > 0
-        assert self.recipient_currency is not None
+        require_valid(
+            self.account is not None, "transfer withdrawal account is required"
+        )
+        require_valid(self.amount is not None, "transfer withdrawal amount is required")
+        require_valid(self.amount < 0, "transfer withdrawal amount must be negative")
+        require_valid(
+            self.recipient_account is not None,
+            "transfer withdrawal recipient account is required",
+        )
+        require_valid(
+            self.recipient_transaction is not None,
+            "transfer withdrawal recipient transaction is required",
+        )
+        require_valid(
+            self.original_amount is not None,
+            "transfer withdrawal original amount is required",
+        )
+        require_valid(
+            self.original_amount < 0,
+            "transfer withdrawal original amount must be negative",
+        )
+        require_valid(
+            self.original_currency is not None,
+            "transfer withdrawal original currency is required",
+        )
+        require_valid(
+            self.recipient_amount is not None,
+            "transfer withdrawal recipient amount is required",
+        )
+        require_valid(
+            self.recipient_amount > 0,
+            "transfer withdrawal recipient amount must be positive",
+        )
+        require_valid(
+            self.recipient_currency is not None,
+            "transfer withdrawal recipient currency is required",
+        )
 
         if self.original_fee is not None and self.original_fee != 0:
-            assert self.original_fee_currency is not None
+            require_valid(
+                self.original_fee_currency is not None,
+                "transfer withdrawal fee currency is required",
+            )
 
-        assert self.original_exchange_rate is not None
+        require_valid(
+            self.original_exchange_rate is not None,
+            "transfer withdrawal exchange rate is required",
+        )
 
-        assert self.amount == self.original_amount
-        assert self.amount == pytest.approx(
-            -self.recipient_amount / self.original_exchange_rate,
-            abs=ABS_TOLERANCE,
+        require_valid(
+            self.amount == self.original_amount,
+            "transfer withdrawal amount must match original amount",
+        )
+        require_valid(
+            self.amount
+            == pytest.approx(
+                -self.recipient_amount / self.original_exchange_rate,
+                abs=ABS_TOLERANCE,
+            ),
+            "transfer withdrawal exchange rate must match the amounts",
         )
 
 
@@ -582,15 +731,28 @@ class WithdrawTransaction(Transaction):
         self.validate()
 
     def validate(self):
-        assert self.account is not None
-        assert self.amount is not None
+        require_valid(self.account is not None, "withdrawal account is required")
+        require_valid(self.amount is not None, "withdrawal amount is required")
         # self.payee can be None
-        assert self.original_currency is not None
-        assert self.original_amount is not None
+        require_valid(
+            self.original_currency is not None,
+            "withdrawal original currency is required",
+        )
+        require_valid(
+            self.original_amount is not None, "withdrawal original amount is required"
+        )
 
-        assert self.amount * self.original_amount > 0
+        require_valid(
+            self.amount * self.original_amount > 0,
+            "withdrawal amounts must have the same sign",
+        )
 
         if self.original_exchange_rate is not None:
-            assert self.amount == pytest.approx(
-                self.original_amount * self.original_exchange_rate, abs=ABS_TOLERANCE
+            require_valid(
+                self.amount
+                == pytest.approx(
+                    self.original_amount * self.original_exchange_rate,
+                    abs=ABS_TOLERANCE,
+                ),
+                "withdrawal exchange rate must match the amounts",
             )

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from moneywiz_api.model.record import Record
 from moneywiz_api.types import ID
+from moneywiz_api.validation import require_valid
 
 
 @dataclass
@@ -21,5 +22,5 @@ class Payee(Record):
         # Fixes
 
         # Validate
-        assert self.name is not None, self.as_dict()
-        assert self.user is not None, self.as_dict()
+        require_valid(self.name is not None, "payee name is required")
+        require_valid(self.user is not None, "payee owner is required")
