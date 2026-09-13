@@ -63,10 +63,16 @@ class TransactionManager(RecordManager[Transaction]):
         self.category_assignment = {}
         self.refund_maps = {}
         self.tags_map = {}
-        report = super().load(db_accessor)
-        category_assignment, category_report = db_accessor.read_category_assignments()
-        refund_maps, refund_report = db_accessor.read_refund_maps()
-        tags_map, tags_report = db_accessor.read_tags_map()
+        try:
+            report = self._load_records(db_accessor)
+            category_assignment, category_report = (
+                db_accessor.read_category_assignments()
+            )
+            refund_maps, refund_report = db_accessor.read_refund_maps()
+            tags_map, tags_report = db_accessor.read_tags_map()
+        except Exception:
+            self._discard_incomplete_load()
+            raise
         self.category_assignment = category_assignment
         self.refund_maps = refund_maps
         self.tags_map = tags_map

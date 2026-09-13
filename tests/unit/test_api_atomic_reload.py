@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from moneywiz_api.managers.account_manager import AccountManager
+from moneywiz_api.managers.transaction_manager import TransactionManager
 from moneywiz_api.read_result import RelationshipLoadReport, RelationshipStorage
 from moneywiz_api.schema_profile import SchemaProfile
 
@@ -168,11 +169,13 @@ def test_failed_later_load_keeps_published_union_and_relationships(
     assert account_manager._records is old_state["account_records"]
     assert account_manager._gid_to_id is old_state["account_gid_index"]
     assert account_manager.load_report is old_state["account_report"]
+    assert account_manager.load_report.status == "complete"
     assert account_manager.get(1) is old_state["account"]
     assert account_manager.get_by_gid("account-1") is old_state["account"]
     assert transaction_manager._records is old_state["transaction_records"]
     assert transaction_manager._gid_to_id is old_state["transaction_gid_index"]
     assert transaction_manager.load_report is old_state["transaction_report"]
+    assert transaction_manager.load_report.status == "complete"
     assert transaction_manager.get(10) is old_state["transaction"]
     assert transaction_manager.get_by_gid("transaction-10") is old_state["transaction"]
     assert transaction_manager.category_assignment is old_state["categories"]
@@ -222,6 +225,7 @@ def test_failed_new_selection_remains_unloaded_then_successful_retry_publishes(
     assert api._loaded_managers == {"accounts"}
     assert account_manager.get(1) is old_account
     assert transaction_manager.records() == {}
+    assert transaction_manager.load_report.status == "unloaded"
     with pytest.raises(ValueError, match="manager not loaded: transactions"):
         api.completeness(("transactions",))
 
@@ -239,6 +243,40 @@ def test_failed_new_selection_remains_unloaded_then_successful_retry_publishes(
     assert transaction_manager.refund_maps == {20: 40}
     assert transaction_manager.tags_map == {20: [50]}
     assert report.complete
+
+
+@pytest.mark.parametrize("failure", ["category", "refund", "tags"])
+def test_direct_transaction_relationship_failure_stays_unloaded_then_retries(
+    failure,
+) -> None:
+    accessor = SyntheticAccessor()
+    accessor.fail_at = failure
+    manager = TransactionManager()
+
+    with pytest.raises(RuntimeError, match=f"synthetic {failure} failure"):
+        manager.load(accessor)
+
+    assert manager.load_report.status == "unloaded"
+    assert not manager.load_report.complete
+    assert manager.records() == {}
+    assert manager.category_assignment == {}
+    assert manager.refund_maps == {}
+    assert manager.tags_map == {}
+
+    accessor.fail_at = None
+    report = manager.load(accessor)
+
+    assert report.status == "complete"
+    assert report.complete
+    assert manager.get(10) is not None
+
+    accessor.fail_at = failure
+    with pytest.raises(RuntimeError, match=f"synthetic {failure} failure"):
+        manager.load(accessor)
+
+    assert manager.load_report.status == "unloaded"
+    assert not manager.load_report.complete
+    assert manager.records() == {}
 
 
 def test_successful_publication_occurs_after_transaction_exit(monkeypatch) -> None:

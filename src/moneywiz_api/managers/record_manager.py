@@ -28,7 +28,7 @@ class RecordManager(ABC, Generic[T]):
     def __init__(self):
         self._records: Dict[ID, T] = {}
         self._gid_to_id: Dict[GID, ID] = {}
-        self._load_report = ManagerLoadReport()
+        self._load_report = ManagerLoadReport.unloaded()
 
     @property
     @abstractmethod
@@ -41,9 +41,15 @@ class RecordManager(ABC, Generic[T]):
         return ()
 
     def load(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
+        report = self._load_records(db_accessor)
+        self._load_report = report
+        return report
+
+    def _load_records(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
+        """Read rows while keeping the public report unloaded until publication."""
         self._records = {}
         self._gid_to_id = {}
-        self._load_report = ManagerLoadReport()
+        self._load_report = ManagerLoadReport.unloaded()
 
         typenames = list(self.ents)
         if self.entity_roots:
@@ -87,12 +93,17 @@ class RecordManager(ABC, Generic[T]):
                 continue
             parsed_ids.append(obj.id)
 
-        self._load_report = ManagerLoadReport(
+        return ManagerLoadReport(
             source_ids=tuple(source_ids),
             parsed_ids=tuple(parsed_ids),
             skipped=tuple(skipped),
         )
-        return self._load_report
+
+    def _discard_incomplete_load(self) -> None:
+        """Clear state when a direct manager load did not finish."""
+        self._records = {}
+        self._gid_to_id = {}
+        self._load_report = ManagerLoadReport.unloaded()
 
     def _adopt_loaded_state(self, staged: "RecordManager[T]") -> None:
         """Publish a successfully staged load without replacing this manager."""

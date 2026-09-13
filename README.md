@@ -85,8 +85,14 @@ Supported manager names are `accounts`, `payees`, `categories`, `transactions`,
 parsed IDs plus identity-only diagnostics for every skipped row. Transaction
 completeness also reports category, refund, and tag relationship storage as
 `present`, `absent`, or `unknown`; unknown or malformed storage makes the read
-partial. `snapshot` contains JSON-safe records, completeness, and the selected
+partial. Category relationship counts cover transaction assignments only; rows
+owned by budgets, scheduled transactions, or history items are outside that
+map. `snapshot` contains JSON-safe records, completeness, and the selected
 schema profile.
+
+A public manager that has not completed a load exposes a `load_report` with
+status `unloaded` and `complete == False`. A successful zero-row load is instead
+`complete`, so an empty result is distinguishable from an unobserved manager.
 
 Database paths must identify existing files. Connections are opened read-only,
 and each multi-manager load uses one consistent SQLite read transaction. A

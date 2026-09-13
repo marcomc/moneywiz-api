@@ -108,6 +108,12 @@ class ManagerLoadReport:
     parsed_ids: tuple[ID, ...] = ()
     skipped: tuple[SkippedRecord, ...] = ()
     relationships: Mapping[str, RelationshipLoadReport] = field(default_factory=dict)
+    observed: bool = True
+
+    @classmethod
+    def unloaded(cls) -> "ManagerLoadReport":
+        """Return evidence that no complete manager observation was published."""
+        return cls(observed=False)
 
     @property
     def source_count(self) -> int:
@@ -120,13 +126,16 @@ class ManagerLoadReport:
     @property
     def complete(self) -> bool:
         return (
-            self.source_count == self.parsed_count
+            self.observed
+            and self.source_count == self.parsed_count
             and not self.skipped
             and all(report.complete for report in self.relationships.values())
         )
 
     @property
     def status(self) -> str:
+        if not self.observed:
+            return "unloaded"
         if self.complete:
             return "complete"
         if self.parsed_count or any(

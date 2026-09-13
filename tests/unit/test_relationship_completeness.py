@@ -188,6 +188,38 @@ def test_shifted_relationship_layouts_report_valid_and_skipped_rows(tmp_path) ->
     )
 
 
+def test_category_counts_exclude_supported_nontransaction_owners(tmp_path) -> None:
+    path = tmp_path / "nontransaction-category-owners.sqlite"
+    create_custom_relationship_schema(
+        path,
+        metadata=((2, "CategoryAssigment", 0, 0),),
+        tables=(
+            "CREATE TABLE ZCATEGORYASSIGMENT "
+            "(Z_PK INTEGER, ZCATEGORY INTEGER, ZAMOUNT FLOAT, "
+            "ZTRANSACTION INTEGER, ZBUDGET INTEGER, "
+            "ZSCHEDULEDTRANSACITION INTEGER, ZSTRINGHISTORYITEM INTEGER)",
+        ),
+    )
+    with sqlite3.connect(path) as connection:
+        connection.executemany(
+            "INSERT INTO ZCATEGORYASSIGMENT VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (1, 10, 5.0, 100, None, None, None),
+                (2, 11, 2.0, None, 200, None, None),
+                (3, 12, 3.0, None, None, 300, None),
+                (4, 13, 4.0, None, None, None, 400),
+            ],
+        )
+
+    with DatabaseAccessor(path) as accessor:
+        categories, report = accessor.read_category_assignments()
+
+    assert categories == {100: [(10, 5)]}
+    assert report.source_ids == (1,)
+    assert report.parsed_ids == (1,)
+    assert report.complete
+
+
 @pytest.mark.parametrize(
     "reader_name",
     ["read_category_assignments", "read_refund_maps", "read_tags_map"],

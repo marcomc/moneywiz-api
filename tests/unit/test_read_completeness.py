@@ -4,10 +4,19 @@ import json
 
 import pytest
 
+from moneywiz_api.managers.account_manager import AccountManager
+from moneywiz_api.managers.category_manager import CategoryManager
+from moneywiz_api.managers.investment_holding_manager import (
+    InvestmentHoldingManager,
+)
+from moneywiz_api.managers.payee_manager import PayeeManager
 from moneywiz_api.managers.record_manager import RecordManager
+from moneywiz_api.managers.tag_manager import TagManager
+from moneywiz_api.managers.transaction_manager import TransactionManager
 from moneywiz_api.model.record import Record
 from moneywiz_api.read_result import (
     LoadErrorKind,
+    ManagerLoadReport,
     RelationshipLoadReport,
     RelationshipStorage,
 )
@@ -26,6 +35,34 @@ class ExampleManager(RecordManager):
     @property
     def entity_roots(self):
         return ("ExampleRecord",)
+
+
+@pytest.mark.parametrize(
+    "manager_type",
+    [
+        AccountManager,
+        PayeeManager,
+        CategoryManager,
+        TransactionManager,
+        InvestmentHoldingManager,
+        TagManager,
+    ],
+)
+def test_fresh_public_manager_reports_unloaded(manager_type) -> None:
+    report = manager_type().load_report
+
+    assert not report.observed
+    assert report.status == "unloaded"
+    assert not report.complete
+    assert report.as_dict()["status"] == "unloaded"
+
+
+def test_default_report_remains_a_successful_empty_observation() -> None:
+    report = ManagerLoadReport()
+
+    assert report.observed
+    assert report.complete
+    assert report.status == "complete"
 
 
 def record_row(record_id=1, gid="record-1", ent=1):
@@ -70,6 +107,8 @@ def test_report_counts_duplicate_and_unknown_rows_without_partial_mutation() -> 
         LoadErrorKind.DUPLICATE_GID,
         LoadErrorKind.UNKNOWN_ENTITY,
     ]
+    assert report.observed
+    assert report.status == "partial"
     assert list(manager.records()) == [1]
 
 
@@ -84,6 +123,55 @@ def test_each_load_resets_records_and_diagnostics() -> None:
     assert report.parsed_ids == (4,)
     assert list(manager.records()) == [4]
     assert manager.load_errors == []
+
+
+def test_failed_first_load_is_unloaded_and_can_retry() -> None:
+    manager = ExampleManager()
+
+    class FailingAccessor(RecordAccessor):
+        def query_objects(self, _typenames):
+            raise RuntimeError("synthetic query failure")
+
+    with pytest.raises(RuntimeError, match="synthetic query failure"):
+        manager.load(FailingAccessor([]))
+
+    assert manager.load_report.status == "unloaded"
+    assert not manager.load_report.complete
+    assert manager.records() == {}
+
+    report = manager.load(RecordAccessor([]))
+
+    assert report.observed
+    assert report.status == "complete"
+    assert report.complete
+
+
+def test_failed_direct_reload_replaces_prior_report_with_unloaded_state() -> None:
+    manager = ExampleManager()
+    manager.load(RecordAccessor([record_row()]))
+
+    class FailingAccessor(RecordAccessor):
+        def query_objects(self, _typenames):
+            raise RuntimeError("synthetic reload failure")
+
+    with pytest.raises(RuntimeError, match="synthetic reload failure"):
+        manager.load(FailingAccessor([]))
+
+    assert manager.load_report.status == "unloaded"
+    assert not manager.load_report.complete
+    assert manager.records() == {}
+
+
+def test_completed_load_with_only_invalid_rows_reports_error() -> None:
+    manager = ExampleManager()
+
+    report = manager.load(
+        RecordAccessor([record_row(ent=2)], {1: "ExampleRecord", 2: "FutureRecord"})
+    )
+
+    assert report.observed
+    assert report.status == "error"
+    assert not report.complete
 
 
 class FakeAccessor:
@@ -144,6 +232,7 @@ def test_api_supports_scoped_loads_and_json_safe_snapshot(monkeypatch) -> None:
         assert snapshot["schema_profile"]["profile_id"] == (
             "unsuffixed-investment-columns"
         )
+        assert api.payee_manager.load_report.status == "unloaded"
         assert api.accessor.transaction_entries == 1
         json.dumps(snapshot)
 
@@ -167,8 +256,14 @@ def test_api_rejects_unloaded_or_unknown_manager(monkeypatch) -> None:
     monkeypatch.setattr(api_module, "DatabaseAccessor", FakeAccessor)
     api = api_module.MoneywizApi("unused.sqlite", managers=())
 
+    assert all(
+        api._managers[name].load_report.status == "unloaded"
+        for name in api.MANAGER_NAMES
+    )
     with pytest.raises(ValueError, match="manager not loaded"):
         api.completeness(("accounts",))
+    with pytest.raises(ValueError, match="manager not loaded"):
+        api.snapshot(("accounts",))
     with pytest.raises(ValueError, match="unknown manager"):
         api.load(("missing",))
 
