@@ -17,6 +17,7 @@ def create_read_schema(path) -> None:
             (8, "SyncObject", 0, 0),
             (9, "Account", 8, 0),
             (10, "CashAccount", 9, 0),
+            (35, "Tag", 8, 0),
             (36, "Transaction", 8, 0),
             (37, "DepositTransaction", 36, 0),
         ],
@@ -30,6 +31,9 @@ def create_read_schema(path) -> None:
         "ZNOTES1 TEXT, ZACCOUNT2 INTEGER, ZPAYEE2 INTEGER, "
         "ZORIGINALCURRENCY TEXT, ZORIGINALAMOUNT FLOAT, "
         "ZORIGINALEXCHANGERATE FLOAT)"
+    )
+    connection.execute(
+        "CREATE TABLE Z_36TAGS (Z_36TRANSACTIONS INTEGER, Z_35TAGS INTEGER)"
     )
     connection.execute(
         "INSERT INTO ZSYNCOBJECT "
@@ -50,6 +54,20 @@ def mutate_between_loads(path) -> None:
         "ZDESC2, ZDATE1, ZNOTES1, ZACCOUNT2, ZPAYEE2, ZORIGINALCURRENCY, "
         "ZORIGINALAMOUNT, ZORIGINALEXCHANGERATE) "
         "VALUES (2, 37, 0, 'transaction-2', 0, 5, 'Income', 0, NULL, 1, "
+        "NULL, 'EUR', 5, 1)"
+    )
+    connection.commit()
+    connection.close()
+
+
+def add_nullable_description_transaction(path) -> None:
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "INSERT INTO ZSYNCOBJECT "
+        "(Z_PK, Z_ENT, ZOBJECTCREATIONDATE, ZGID, ZRECONCILED, ZAMOUNT1, "
+        "ZDESC2, ZDATE1, ZNOTES1, ZACCOUNT2, ZPAYEE2, ZORIGINALCURRENCY, "
+        "ZORIGINALAMOUNT, ZORIGINALEXCHANGERATE) "
+        "VALUES (2, 37, 0, 'transaction-2', 0, 5, NULL, 0, NULL, 1, "
         "NULL, 'EUR', 5, 1)"
     )
     connection.commit()
@@ -81,3 +99,20 @@ def test_scoped_reload_refreshes_loaded_union_atomically(
         assert api.transaction_manager.get(2).description == "Income"
         assert tuple(snapshot["completeness"]["managers"]) == expected_managers
         assert snapshot["records"]["accounts"][0]["name"] == "After"
+
+
+def test_nullable_transaction_description_preserves_complete_api_read(tmp_path) -> None:
+    path = tmp_path / "nullable-description.sqlite"
+    create_read_schema(path)
+    add_nullable_description_transaction(path)
+
+    with MoneywizApi(path, managers=("transactions",)) as api:
+        completeness = api.completeness()
+        snapshot = api.snapshot().as_dict()
+
+        assert completeness.complete
+        assert api.transaction_manager.load_report.source_ids == (2,)
+        assert api.transaction_manager.load_report.parsed_ids == (2,)
+        assert api.transaction_manager.load_report.skipped == ()
+        assert api.transaction_manager.get(2).description is None
+        assert snapshot["records"]["transactions"][0]["description"] is None
