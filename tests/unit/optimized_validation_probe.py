@@ -311,6 +311,10 @@ def named_entities_probe():
             Payee,
             {**common_row(Z_ENT=28), "ZNAME5": "Payee", "ZUSER7": None},
         ),
+        "payee_blob_name": (
+            Payee,
+            {**common_row(Z_ENT=28), "ZNAME5": b"PRIVATE_PAYLOAD", "ZUSER7": 1},
+        ),
         "tag_valid": (
             Tag,
             {**common_row(Z_ENT=35), "ZNAME6": "Tag", "ZUSER8": 1},
@@ -318,6 +322,10 @@ def named_entities_probe():
         "tag_invalid": (
             Tag,
             {**common_row(Z_ENT=35), "ZNAME6": "Tag", "ZUSER8": None},
+        ),
+        "tag_blob_name": (
+            Tag,
+            {**common_row(Z_ENT=35), "ZNAME6": b"PRIVATE_PAYLOAD", "ZUSER8": 1},
         ),
         "category_valid": (
             Category,
@@ -337,6 +345,16 @@ def named_entities_probe():
                 "ZPARENTCATEGORY": None,
                 "ZTYPE2": 1,
                 "ZUSER3": None,
+            },
+        ),
+        "category_blob_name": (
+            Category,
+            {
+                **common_row(Z_ENT=19),
+                "ZNAME2": b"PRIVATE_PAYLOAD",
+                "ZPARENTCATEGORY": None,
+                "ZTYPE2": 1,
+                "ZUSER3": 1,
             },
         ),
     }
@@ -488,6 +506,9 @@ def main():
             ),
             "record_valid": capture(lambda: Record(common_row()).gid),
             "record_invalid_identity": capture(lambda: Record(common_row(ZGID=""))),
+            "record_coerced_gid": capture(
+                lambda: Record(common_row(ZGID=b"PRIVATE_PAYLOAD"))
+            ),
             "record_coerced_identity": capture(lambda: Record(common_row(Z_PK=True))),
             "account_nullable_info": capture(
                 lambda: {
@@ -499,6 +520,12 @@ def main():
                 lambda: accessor_for(account_row(ZNAME=None)).get_record_by_gid(
                     "account-1", CreditCardAccount
                 )
+            ),
+            "account_blob_name": capture(
+                lambda: CashAccount(account_row(ZNAME=b"PRIVATE_PAYLOAD"))
+            ),
+            "account_blob_info": capture(
+                lambda: CashAccount(account_row(ZINFO=b"PRIVATE_PAYLOAD"))
             ),
             "direct_accounts": direct_account_probe(),
             "category_types": category_type_probe(),

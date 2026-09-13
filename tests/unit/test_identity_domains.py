@@ -5,6 +5,11 @@ import json
 import pytest
 
 from moneywiz_api.managers.transaction_manager import TransactionManager
+from moneywiz_api.managers.account_manager import AccountManager
+from moneywiz_api.managers.category_manager import CategoryManager
+from moneywiz_api.managers.investment_holding_manager import InvestmentHoldingManager
+from moneywiz_api.managers.payee_manager import PayeeManager
+from moneywiz_api.managers.tag_manager import TagManager
 from moneywiz_api.model.account import CashAccount
 from moneywiz_api.model.category import Category
 from moneywiz_api.model.investment_holding import InvestmentHolding
@@ -24,10 +29,18 @@ from moneywiz_api.model.transaction import (
     WithdrawTransaction,
 )
 from moneywiz_api.read_result import RelationshipLoadReport, RelationshipStorage
+from moneywiz_api.schema_profile import SchemaProfile
 from tests.unit.accessor_test_support import initialized_memory_accessor
 
 
 INVALID_IDENTITIES = (True, 1.0, "PRIVATE_PAYLOAD", Decimal("1"))
+PROFILE = SchemaProfile(
+    "unsuffixed-investment-columns",
+    "ZNUMBEROFSHARES",
+    "ZNUMBEROFSHARES",
+    "ZPRICEPERSHARE",
+    "ZPRICEPERSHARE",
+)
 
 
 def record_row(**overrides):
@@ -265,6 +278,43 @@ def test_model_identity_fields_preserve_valid_integers(
     constructor(row_factory(**{field: 7}))
 
 
+@pytest.mark.parametrize("gid", ["record-1", "Δοκιμή", "   ", "id:/?!"])
+def test_record_gid_preserves_nonempty_exact_strings(gid) -> None:
+    assert Record(record_row(ZGID=gid)).gid == gid
+
+
+@pytest.mark.parametrize("gid", [None, "", b"PRIVATE_PAYLOAD", 1, True, object()])
+def test_record_gid_refuses_empty_or_coerced_values_without_payload(gid) -> None:
+    with pytest.raises(AssertionError) as error:
+        Record(record_row(ZGID=gid))
+
+    assert "PRIVATE_PAYLOAD" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("constructor", "row_factory", "field"),
+    [
+        (CashAccount, account_row, "ZNAME"),
+        (Payee, payee_row, "ZNAME5"),
+        (Category, category_row, "ZNAME2"),
+        (Tag, tag_row, "ZNAME6"),
+    ],
+)
+def test_native_named_entities_preserve_empty_strings_and_reject_blobs(
+    constructor, row_factory, field
+) -> None:
+    assert constructor(row_factory(**{field: ""})).name == ""
+    with pytest.raises(AssertionError, match="uncoerced string"):
+        constructor(row_factory(**{field: b"PRIVATE_PAYLOAD"}))
+
+
+def test_account_info_preserves_nullable_and_empty_text_contract() -> None:
+    assert CashAccount(account_row(ZINFO=None)).info is None
+    assert CashAccount(account_row(ZINFO="")).info == ""
+    with pytest.raises(AssertionError, match="uncoerced string"):
+        CashAccount(account_row(ZINFO=b"PRIVATE_PAYLOAD"))
+
+
 @pytest.mark.parametrize(
     ("constructor", "row_factory", "field"),
     [
@@ -366,6 +416,17 @@ def test_accessor_refuses_invalid_reconciled_domain(raw_value) -> None:
         accessor.get_record(1, DepositTransaction)
 
 
+def test_accessor_enforces_exact_string_gid_domain() -> None:
+    accessor = initialized_memory_accessor(
+        [record_row(ZGID=b"PRIVATE_PAYLOAD")],
+        [(37, "Record", 0)],
+    )
+
+    with pytest.raises(AssertionError, match="uncoerced string"):
+        accessor.get_record(1)
+    accessor.close()
+
+
 class TransactionAccessor:
     def __init__(self, rows):
         self.rows = rows
@@ -391,6 +452,72 @@ class TransactionAccessor:
 
     def read_tags_map(self):
         return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
+
+
+class ManagerAccessor(TransactionAccessor):
+    def __init__(self, rows, typenames):
+        super().__init__(rows)
+        self.typenames = typenames
+        self.schema_profile = PROFILE
+
+    def descendant_typenames(self, _roots):
+        return list(self.typenames.values())
+
+    def typename_for(self, ent_id):
+        return self.typenames.get(ent_id)
+
+
+@pytest.mark.parametrize(
+    ("manager_type", "row_factory", "entity", "entity_id"),
+    [
+        (AccountManager, account_row, "CashAccount", 10),
+        (PayeeManager, payee_row, "Payee", 28),
+        (CategoryManager, category_row, "Category", 19),
+        (InvestmentHoldingManager, holding_row, "InvestmentHolding", 24),
+        (TransactionManager, transaction_row, "DepositTransaction", 37),
+        (TagManager, tag_row, "Tag", 35),
+    ],
+)
+def test_all_managers_skip_wrong_type_gid_and_keep_valid_row(
+    manager_type, row_factory, entity, entity_id
+) -> None:
+    invalid = row_factory(ZGID=b"PRIVATE_PAYLOAD")
+    valid = row_factory(Z_PK=2, ZGID="valid-2")
+
+    report = manager_type().load(ManagerAccessor([invalid, valid], {entity_id: entity}))
+
+    assert report.source_ids == (1, 2)
+    assert report.parsed_ids == (2,)
+    assert report.skipped[0].error.value == "validation"
+    assert report.status == "partial"
+    assert "PRIVATE_PAYLOAD" not in json.dumps(report.as_dict(), sort_keys=True)
+
+
+@pytest.mark.parametrize(
+    ("manager_type", "row_factory", "field", "entity", "entity_id"),
+    [
+        (AccountManager, account_row, "ZNAME", "CashAccount", 10),
+        (PayeeManager, payee_row, "ZNAME5", "Payee", 28),
+        (CategoryManager, category_row, "ZNAME2", "Category", 19),
+        (TagManager, tag_row, "ZNAME6", "Tag", 35),
+    ],
+)
+def test_named_entity_managers_report_blob_names_as_validation(
+    manager_type, row_factory, field, entity, entity_id
+) -> None:
+    report = manager_type().load(
+        ManagerAccessor(
+            [
+                row_factory(**{field: b"PRIVATE_PAYLOAD"}),
+                row_factory(Z_PK=2, ZGID="valid-2", **{field: ""}),
+            ],
+            {entity_id: entity},
+        )
+    )
+
+    assert report.source_count == 2
+    assert report.parsed_ids == (2,)
+    assert report.skipped[0].error.value == "validation"
 
 
 @pytest.mark.parametrize(

@@ -63,9 +63,12 @@ def test_probe_covers_success_error_and_completeness_paths(
     }
     assert cases["date_string"]["type"] == "AssertionError"
     assert cases["record_invalid_identity"]["type"] == "AssertionError"
+    assert cases["record_coerced_gid"]["type"] == "AssertionError"
     assert cases["record_coerced_identity"]["type"] == "AssertionError"
     assert cases["account_nullable_info"]["status"] == "ok"
     assert cases["account_invalid_name_public"]["type"] == "AssertionError"
+    assert cases["account_blob_name"]["type"] == "AssertionError"
+    assert cases["account_blob_info"]["type"] == "AssertionError"
     direct_accounts = cases["direct_accounts"]
     assert all(
         outcomes["valid"] == {"status": "ok", "value": None}
@@ -98,7 +101,14 @@ def test_probe_covers_success_error_and_completeness_paths(
     )
     assert all(
         named_entities[name]["type"] == "AssertionError"
-        for name in ("payee_invalid", "tag_invalid", "category_invalid")
+        for name in (
+            "payee_invalid",
+            "tag_invalid",
+            "category_invalid",
+            "payee_blob_name",
+            "tag_blob_name",
+            "category_blob_name",
+        )
     )
     assert cases["manager"]["source_ids"] == [10, 11, None]
     assert cases["manager"]["parsed_count"] == 1

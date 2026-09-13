@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -257,8 +258,11 @@ class ReadSnapshot:
     schema_profile: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "records", _FrozenMapping(self.records))
-        object.__setattr__(self, "schema_profile", _FrozenMapping(self.schema_profile))
+        records = json_safe(self.records)
+        schema_profile = json_safe(self.schema_profile)
+        json_safe(self.completeness)
+        object.__setattr__(self, "records", _FrozenMapping(records))
+        object.__setattr__(self, "schema_profile", _FrozenMapping(schema_profile))
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -270,6 +274,12 @@ class ReadSnapshot:
 
 def json_safe(value: Any) -> Any:
     """Convert public model values into deterministic JSON-compatible values."""
+    if value is None or type(value) in (bool, int, str):
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise TypeError("snapshot float values must be finite")
+        return value
     if isinstance(value, Decimal):
         return str(value)
     if isinstance(value, (datetime, date)):
@@ -277,11 +287,27 @@ def json_safe(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, Enum):
-        return value.value
-    if hasattr(value, "__dataclass_fields__"):
+        return json_safe(value.value)
+    if is_dataclass(value) and not isinstance(value, type):
         return json_safe(asdict(value))
     if isinstance(value, Mapping):
-        return {str(key): json_safe(item) for key, item in value.items()}
+        converted = {}
+        for key, item in value.items():
+            normalized_key = _json_safe_key(key)
+            if normalized_key in converted:
+                raise TypeError("snapshot mapping keys collide after normalization")
+            converted[normalized_key] = json_safe(item)
+        return converted
     if isinstance(value, (tuple, list)):
         return [json_safe(item) for item in value]
-    return value
+    raise TypeError("snapshot contains an unsupported value")
+
+
+def _json_safe_key(value: Any) -> str:
+    if value is None or type(value) in (bool, int, str):
+        return str(value)
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise TypeError("snapshot mapping keys must be finite")
+        return str(value)
+    raise TypeError("snapshot contains an unsupported mapping key")

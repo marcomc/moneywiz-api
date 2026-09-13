@@ -12,3 +12,11 @@ def require_integer_identity(
         return
     if type(value) is not int:
         raise AssertionError(message)
+
+
+def require_text(value: object, message: str, *, optional: bool = False) -> None:
+    """Require an uncoerced string, optionally allowing None."""
+    if optional and value is None:
+        return
+    if type(value) is not str:
+        raise AssertionError(message)

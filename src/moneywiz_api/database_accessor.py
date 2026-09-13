@@ -79,6 +79,8 @@ class DatabaseAccessor:
 
     def _initialize_schema_cache(self) -> None:
         """Bind all schema-dependent caches from one SQLite snapshot."""
+        self._admission_depth = 0
+        self._admission_broken = False
         with self._raw_read_transaction():
             if not self._table_exists("Z_PRIMARYKEY") or not self._table_exists(
                 "ZSYNCOBJECT"
@@ -340,8 +342,14 @@ class DatabaseAccessor:
         try:
             yield
         finally:
-            if owns_transaction and self._con.in_transaction:
+            if owns_transaction and self._transaction_is_active():
                 self._con.rollback()
+
+    def _transaction_is_active(self) -> bool:
+        try:
+            return self._con.in_transaction
+        except sqlite3.Error:
+            return False
 
     def _verify_schema_identity(self) -> None:
         try:
@@ -392,10 +400,42 @@ class DatabaseAccessor:
     @contextmanager
     def read_transaction(self):
         """Keep cache-dependent reads on one verified SQLite snapshot."""
+        admission_depth = getattr(self, "_admission_depth", 0)
+        admission_broken = getattr(self, "_admission_broken", False)
+        if admission_depth and (admission_broken or not self._transaction_is_active()):
+            self._admission_broken = True
+            raise DatabaseSchemaError(
+                "database read transaction was interrupted; close and reopen the accessor"
+            )
+
         with self._raw_read_transaction():
-            self._verify_schema_identity()
-            self._verify_source_eligibility()
-            yield
+            owns_admission = admission_depth == 0
+            if owns_admission:
+                self._verify_schema_identity()
+                self._verify_source_eligibility()
+                if not self._transaction_is_active():
+                    raise DatabaseSchemaError(
+                        "database read transaction was interrupted; "
+                        "close and reopen the accessor"
+                    )
+            self._admission_depth += 1
+            try:
+                yield
+            except BaseException:
+                if not self._transaction_is_active():
+                    self._admission_broken = True
+                raise
+            else:
+                if self._admission_broken or not self._transaction_is_active():
+                    self._admission_broken = True
+                    raise DatabaseSchemaError(
+                        "database read transaction was interrupted; "
+                        "close and reopen the accessor"
+                    )
+            finally:
+                self._admission_depth -= 1
+                if owns_admission:
+                    self._admission_broken = False
 
     def __enter__(self):
         return self

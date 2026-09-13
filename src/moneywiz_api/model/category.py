@@ -3,7 +3,11 @@ from typing import Optional
 
 from moneywiz_api.model.record import Record
 from moneywiz_api.types import CategoryType, ID
-from moneywiz_api.validation import require_integer_identity, require_valid
+from moneywiz_api.validation import (
+    require_integer_identity,
+    require_text,
+    require_valid,
+)
 
 
 @dataclass
@@ -28,6 +32,7 @@ class Category(Record):
 
         # Validate
         require_valid(self.name is not None, "category name is required")
+        require_text(self.name, "category name must be an uncoerced string")
         require_integer_identity(
             self.parent_id,
             "category parent must be an uncoerced integer",

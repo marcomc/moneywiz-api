@@ -2,7 +2,11 @@ from dataclasses import dataclass
 
 from moneywiz_api.model.record import Record
 from moneywiz_api.types import ID
-from moneywiz_api.validation import require_integer_identity, require_valid
+from moneywiz_api.validation import (
+    require_integer_identity,
+    require_text,
+    require_valid,
+)
 
 
 @dataclass
@@ -23,5 +27,6 @@ class Tag(Record):
 
         # Validate
         require_valid(self.name is not None, "tag name is required")
+        require_text(self.name, "tag name must be an uncoerced string")
         require_valid(self.user is not None, "tag owner is required")
         require_integer_identity(self.user, "tag owner must be an uncoerced integer")

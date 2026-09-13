@@ -6,7 +6,11 @@ from typing import Optional
 from moneywiz_api.types import ID
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
-from moneywiz_api.validation import require_integer_identity, require_valid
+from moneywiz_api.validation import (
+    require_integer_identity,
+    require_text,
+    require_valid,
+)
 
 
 @dataclass
@@ -46,11 +50,15 @@ class Account(Record, ABC):
             self.group_id, "account group identity must be an uncoerced integer"
         )
         require_valid(self.name is not None, "account name is required")
+        require_text(self.name, "account name must be an uncoerced string")
         require_valid(self.currency is not None, "account currency is required")
         require_valid(
             self.opening_balance is not None, "account opening balance is required"
         )
         # info is nullable in valid MoneyWiz stores.
+        require_text(
+            self.info, "account info must be an uncoerced string", optional=True
+        )
         require_valid(self.user is not None, "account owner is required")
         require_integer_identity(
             self.user, "account owner must be an uncoerced integer"
