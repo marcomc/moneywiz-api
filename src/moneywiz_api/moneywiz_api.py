@@ -75,10 +75,12 @@ class MoneywizApi:
             for name in self.MANAGER_NAMES
             if name in self._loaded_managers or name in requested
         )
-        self._loaded_managers.difference_update(names)
+        staged = {name: type(self._managers[name])() for name in names}
         with self.accessor.read_transaction():
             for name in names:
-                self._managers[name].load(self.accessor)
+                staged[name].load(self.accessor)
+        for name in names:
+            self._managers[name]._adopt_loaded_state(staged[name])
         self._loaded_managers.update(names)
         return self.completeness(names)
 

@@ -91,7 +91,8 @@ schema profile.
 Database paths must identify existing files. Connections are opened read-only,
 and each multi-manager load uses one consistent SQLite read transaction. A
 later scoped load atomically refreshes the union of requested and already loaded
-managers so one snapshot never mixes database generations.
+managers so one snapshot never mixes database generations. If a reload fails,
+the previously published records and completeness evidence remain available.
 
 ## Contribution
 

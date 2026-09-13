@@ -80,6 +80,13 @@ class TransactionManager(RecordManager[Transaction]):
         )
         return self._load_report
 
+    def _adopt_loaded_state(self, staged: "TransactionManager") -> None:
+        """Publish records and relationship state from one completed load."""
+        super()._adopt_loaded_state(staged)
+        self.category_assignment = staged.category_assignment
+        self.refund_maps = staged.refund_maps
+        self.tags_map = staged.tags_map
+
     def category_for_transaction(
         self, transaction_id: ID
     ) -> List[Tuple[ID, Decimal]] | None:

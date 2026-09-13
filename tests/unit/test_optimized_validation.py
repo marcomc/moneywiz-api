@@ -65,6 +65,30 @@ def test_probe_covers_success_error_and_completeness_paths(
     assert cases["record_invalid_identity"]["type"] == "AssertionError"
     assert cases["account_nullable_info"]["status"] == "ok"
     assert cases["account_invalid_name_public"]["type"] == "AssertionError"
+    direct_accounts = cases["direct_accounts"]
+    assert all(
+        outcomes["valid"] == {"status": "ok", "value": None}
+        for outcomes in direct_accounts.values()
+    )
+    assert all(
+        outcomes["invalid_name"]["type"] == "AssertionError"
+        for outcomes in direct_accounts.values()
+    )
+    assert all(
+        direct_accounts[name]["invalid_statement_day"]["type"] == "AssertionError"
+        for name in ("CreditCardAccount", "LoanAccount")
+    )
+
+    category_types = cases["category_types"]
+    assert category_types["supported"]["1"]["value"] == "Expenses"
+    assert category_types["supported"]["2"]["value"] == "Income"
+    assert all(
+        report["skipped"][0]["error"] == "invalid_value"
+        for report in category_types["unsupported"].values()
+    )
+    assert category_types["missing"]["skipped"][0]["error"] == "missing_field"
+    assert category_types["invalid_owner"]["skipped"][0]["error"] == "validation"
+    assert category_types["unexpected"]["skipped"][0]["error"] == "construction"
 
     named_entities = cases["named_entities"]
     assert all(

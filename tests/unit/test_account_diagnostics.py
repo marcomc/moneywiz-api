@@ -2,7 +2,28 @@ import pytest
 
 from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.managers.account_manager import AccountManager
-from moneywiz_api.model.account import CreditCardAccount
+from moneywiz_api.model.account import (
+    Account,
+    BankChequeAccount,
+    BankSavingAccount,
+    CashAccount,
+    CreditCardAccount,
+    ForexAccount,
+    InvestmentAccount,
+    LoanAccount,
+)
+
+
+ACCOUNT_CONSTRUCTORS = (
+    Account,
+    BankChequeAccount,
+    BankSavingAccount,
+    CashAccount,
+    CreditCardAccount,
+    LoanAccount,
+    InvestmentAccount,
+    ForexAccount,
+)
 
 
 def account_row(**overrides):
@@ -67,6 +88,78 @@ def test_required_account_identity_remains_required() -> None:
     assert not report.complete
     assert report.skipped[0].error.value == "validation"
     assert report.skipped[0].exception_type == "AssertionError"
+
+
+@pytest.mark.parametrize("constructor", ACCOUNT_CONSTRUCTORS)
+@pytest.mark.parametrize("info_present", [True, False])
+def test_direct_account_constructors_accept_nullable_or_absent_info(
+    constructor, info_present
+) -> None:
+    row = account_row()
+    if not info_present:
+        del row["ZINFO"]
+
+    account = constructor(row)
+
+    assert account.info is None
+    assert account.name == "Card"
+
+
+@pytest.mark.parametrize("constructor", ACCOUNT_CONSTRUCTORS)
+def test_direct_account_constructors_reject_missing_required_name(constructor) -> None:
+    with pytest.raises(AssertionError, match="account name is required"):
+        constructor(account_row(ZNAME=None))
+
+
+@pytest.mark.parametrize("constructor", [CreditCardAccount, LoanAccount])
+def test_direct_credit_constructors_reject_null_statement_day(constructor) -> None:
+    with pytest.raises(AssertionError, match="account statement day is required"):
+        constructor(account_row(ZSTATEMENTENDDAY=None))
+
+
+@pytest.mark.parametrize("constructor", [CreditCardAccount, LoanAccount])
+def test_direct_credit_constructors_preserve_missing_statement_key(constructor) -> None:
+    row = account_row()
+    del row["ZSTATEMENTENDDAY"]
+
+    with pytest.raises(KeyError, match="ZSTATEMENTENDDAY"):
+        constructor(row)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "exception"),
+    [
+        ("ZGID", "", AssertionError),
+        ("Z_PK", 0, AssertionError),
+        ("ZGID", None, AssertionError),
+    ],
+)
+def test_direct_account_preserves_record_identity_validation(
+    field, value, exception
+) -> None:
+    with pytest.raises(exception):
+        CashAccount(account_row(**{field: value}))
+
+
+def test_direct_account_preserves_missing_record_identity_field() -> None:
+    row = account_row()
+    del row["ZGID"]
+
+    with pytest.raises(KeyError, match="ZGID"):
+        CashAccount(row)
+
+
+def test_direct_account_validation_does_not_serialize_source(monkeypatch) -> None:
+    def reject_serialization(_self):
+        raise RuntimeError("PRIVATE_PAYLOAD_SERIALIZED")
+
+    monkeypatch.setattr(CashAccount, "as_dict", reject_serialization)
+    row = account_row(ZNAME=None, ZINFO="PRIVATE_PAYLOAD")
+
+    with pytest.raises(AssertionError, match="account name is required") as error:
+        CashAccount(row)
+
+    assert "PRIVATE_PAYLOAD" not in str(error.value)
 
 
 class StaticCursor:

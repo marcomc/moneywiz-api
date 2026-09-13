@@ -35,4 +35,4 @@ class Category(Record):
     def _convert_type(type_: Optional[int]) -> CategoryType:
         if type_ and type_ in [1, 2]:
             return "Expenses" if type_ == 1 else "Income"
-        raise RuntimeError(f"Invalid type {type_}")
+        raise ValueError("unsupported category type")

@@ -10,9 +10,19 @@ from decimal import Decimal
 from pathlib import Path
 
 from moneywiz_api.database_accessor import DatabaseAccessor
+from moneywiz_api.managers.category_manager import CategoryManager
 from moneywiz_api.managers.payee_manager import PayeeManager
 from moneywiz_api.managers.transaction_manager import TransactionManager
-from moneywiz_api.model.account import CreditCardAccount
+from moneywiz_api.model.account import (
+    Account,
+    BankChequeAccount,
+    BankSavingAccount,
+    CashAccount,
+    CreditCardAccount,
+    ForexAccount,
+    InvestmentAccount,
+    LoanAccount,
+)
 from moneywiz_api.model.category import Category
 from moneywiz_api.model.investment_holding import InvestmentHolding
 from moneywiz_api.model.payee import Payee
@@ -196,6 +206,97 @@ class PayeeAccessor:
         return "Payee"
 
 
+class CategoryAccessor:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def query_objects(self, _typenames):
+        return self.rows
+
+    def typename_for(self, _ent_id):
+        return "Category"
+
+
+def direct_account_probe():
+    constructors = (
+        Account,
+        BankChequeAccount,
+        BankSavingAccount,
+        CashAccount,
+        CreditCardAccount,
+        LoanAccount,
+        InvestmentAccount,
+        ForexAccount,
+    )
+    return {
+        constructor.__name__: {
+            "valid": capture(
+                lambda constructor=constructor: constructor(account_row()).info
+            ),
+            "invalid_name": capture(
+                lambda constructor=constructor: constructor(account_row(ZNAME=None))
+            ),
+            "invalid_statement_day": (
+                capture(
+                    lambda constructor=constructor: constructor(
+                        account_row(ZSTATEMENTENDDAY=None)
+                    )
+                )
+                if issubclass(constructor, CreditCardAccount)
+                else None
+            ),
+        }
+        for constructor in constructors
+    }
+
+
+def category_type_probe():
+    def row(value=1, **overrides):
+        category = {
+            **common_row(Z_ENT=19),
+            "ZNAME2": "Category",
+            "ZPARENTCATEGORY": None,
+            "ZTYPE2": value,
+            "ZUSER3": 1,
+        }
+        category.update(overrides)
+        return category
+
+    manager_reports = {}
+    for label, value in (
+        ("null", None),
+        ("zero", 0),
+        ("integer", 3),
+        ("text", "PRIVATE_PAYLOAD"),
+    ):
+        report = CategoryManager().load(CategoryAccessor([row(value)]))
+        manager_reports[label] = report.as_dict()
+    missing = row()
+    del missing["ZTYPE2"]
+    missing_report = CategoryManager().load(CategoryAccessor([missing]))
+    owner_report = CategoryManager().load(CategoryAccessor([row(ZUSER3=None)]))
+
+    def unexpected_constructor(_row):
+        raise RuntimeError("synthetic unexpected constructor failure")
+
+    class UnexpectedCategoryManager(CategoryManager):
+        @property
+        def ents(self):
+            return {"Category": unexpected_constructor}
+
+    unexpected_report = UnexpectedCategoryManager().load(CategoryAccessor([row()]))
+    return {
+        "supported": {
+            "1": capture(lambda: Category(row(1)).type),
+            "2": capture(lambda: Category(row(2)).type),
+        },
+        "unsupported": manager_reports,
+        "missing": missing_report.as_dict(),
+        "invalid_owner": owner_report.as_dict(),
+        "unexpected": unexpected_report.as_dict(),
+    }
+
+
 def named_entities_probe():
     rows = {
         "payee_valid": (
@@ -310,12 +411,14 @@ def relationship_probe():
 def sentinel_probe():
     original_payee_as_dict = Payee.as_dict
     original_deposit_as_dict = DepositTransaction.as_dict
+    original_account_as_dict = CashAccount.as_dict
 
     def reject_serialization(_self):
         raise RuntimeError("PRIVATE_PAYLOAD_SERIALIZED")
 
     Payee.as_dict = reject_serialization
     DepositTransaction.as_dict = reject_serialization
+    CashAccount.as_dict = reject_serialization
     try:
         payee = capture(
             lambda: Payee(
@@ -327,10 +430,12 @@ def sentinel_probe():
             )
         )
         deposit = capture(lambda: DepositTransaction(transaction_row(ZACCOUNT2=None)))
+        account = capture(lambda: CashAccount(account_row(ZNAME=None)))
     finally:
         Payee.as_dict = original_payee_as_dict
         DepositTransaction.as_dict = original_deposit_as_dict
-    return {"payee": payee, "deposit": deposit}
+        CashAccount.as_dict = original_account_as_dict
+    return {"payee": payee, "deposit": deposit, "account": account}
 
 
 def main():
@@ -382,6 +487,8 @@ def main():
                     "account-1", CreditCardAccount
                 )
             ),
+            "direct_accounts": direct_account_probe(),
+            "category_types": category_type_probe(),
             "named_entities": named_entities_probe(),
             "manager": manager_report.as_dict(),
             "holding_valid": capture(

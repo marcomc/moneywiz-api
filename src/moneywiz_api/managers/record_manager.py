@@ -94,6 +94,12 @@ class RecordManager(ABC, Generic[T]):
         )
         return self._load_report
 
+    def _adopt_loaded_state(self, staged: "RecordManager[T]") -> None:
+        """Publish a successfully staged load without replacing this manager."""
+        self._records = staged._records
+        self._gid_to_id = staged._gid_to_id
+        self._load_report = staged._load_report
+
     @staticmethod
     def _error_kind(exc: Exception) -> LoadErrorKind:
         if isinstance(exc, UnknownEntityError):

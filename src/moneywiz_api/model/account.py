@@ -35,6 +35,7 @@ class Account(Record, ABC):
         self.info = row.get("ZINFO")
 
         self.user = row["ZUSER"]
+        Account.validate(self)
 
     def validate(self) -> None:
         require_valid(
@@ -91,6 +92,7 @@ class CreditCardAccount(Account):
     def __init__(self, row):
         super().__init__(row)
         self.statement_day = row["ZSTATEMENTENDDAY"]
+        CreditCardAccount.validate(self)
 
     def validate(self) -> None:
         super().validate()
