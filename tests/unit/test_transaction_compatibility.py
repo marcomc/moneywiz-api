@@ -58,6 +58,30 @@ def test_transfer_withdraw_preserves_stored_amount_with_rounded_rate() -> None:
     assert transaction.original_amount == Decimal("-3.333")
 
 
+def test_transaction_description_allows_null() -> None:
+    transaction = TransferWithdrawTransaction(
+        transfer_withdraw_row(ZDESC2=None, ZORIGINALEXCHANGERATE=1.0)
+    )
+
+    assert transaction.description is None
+    assert transaction.as_dict()["description"] is None
+
+
+class _DescriptionSubclass(str):
+    pass
+
+
+@pytest.mark.parametrize("description", [b"Transfer", 1, _DescriptionSubclass("x")])
+def test_transaction_description_rejects_non_exact_text(description) -> None:
+    with pytest.raises(
+        AssertionError,
+        match="transaction description must be an uncoerced string or null",
+    ):
+        TransferWithdrawTransaction(
+            transfer_withdraw_row(ZDESC2=description, ZORIGINALEXCHANGERATE=1.0)
+        )
+
+
 class TransferWithdrawManager(RecordManager):
     @property
     def ents(self):

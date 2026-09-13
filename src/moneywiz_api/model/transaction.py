@@ -10,7 +10,11 @@ from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
 from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
-from moneywiz_api.validation import require_integer_identity, require_valid
+from moneywiz_api.validation import (
+    require_integer_identity,
+    require_text,
+    require_valid,
+)
 
 ABS_TOLERANCE = 0.001
 
@@ -24,7 +28,7 @@ class Transaction(Record, ABC):
     reconciled: bool
 
     amount: Decimal
-    description: str
+    description: Optional[str]
     datetime: datetime
     notes: Optional[str]
 
@@ -50,8 +54,10 @@ class Transaction(Record, ABC):
         # Validate
         require_valid(self.reconciled is not None, "transaction state is required")
         require_valid(self.amount is not None, "transaction amount is required")
-        require_valid(
-            self.description is not None, "transaction description is required"
+        require_text(
+            self.description,
+            "transaction description must be an uncoerced string or null",
+            optional=True,
         )
         require_valid(self.datetime is not None, "transaction date is required")
         # self.notes can be None
