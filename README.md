@@ -47,6 +47,12 @@ print(record)
 
 It also offers a interactive shell `moneywiz-cli`.
 
+## Read completeness
+
+The read-completeness API documents whether records and relationships were
+fully observed, partially interpreted, or not loaded. See
+[Read completeness](docs/read-completeness.md) for its contract and usage.
+
 ## Tests
 
 Run unit tests without a database:
@@ -66,6 +72,9 @@ MONEYWIZ_TEST_DB_PATH=/absolute/path/to/test.sqlite uv run pytest tests
 
 The default remains an eager load of every manager. Use an explicit manager list
 to isolate a read from unrelated malformed records:
+
+See [Read completeness](docs/read-completeness.md) for the complete public
+contract, status meanings, safe diagnostics, and snapshot guarantees.
 
 ```python
 from pathlib import Path
