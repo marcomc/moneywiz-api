@@ -527,6 +527,9 @@ def main():
             "account_blob_info": capture(
                 lambda: CashAccount(account_row(ZINFO=b"PRIVATE_PAYLOAD"))
             ),
+            "account_coerced_display_order": capture(
+                lambda: CashAccount(account_row(ZDISPLAYORDER="PRIVATE_PAYLOAD"))
+            ),
             "direct_accounts": direct_account_probe(),
             "category_types": category_type_probe(),
             "named_entities": named_entities_probe(),
@@ -537,6 +540,25 @@ def main():
             "holding_missing_quantity": capture(
                 lambda: InvestmentHolding(holding_row(ZNUMBEROFSHARES=None), PROFILE)
             ),
+            "holding_online_price_state": {
+                label: capture(
+                    lambda value=value: (
+                        InvestmentHolding(
+                            holding_row(ZISPRICEPERSHAREAVAILABLEONLINE=value), PROFILE
+                        ).price_per_share_available_online
+                    )
+                )
+                for label, value in (
+                    ("none", None),
+                    ("false_boolean", False),
+                    ("true_boolean", True),
+                    ("zero", 0),
+                    ("one", 1),
+                    ("two", 2),
+                    ("float", 1.0),
+                    ("text", "PRIVATE_PAYLOAD"),
+                )
+            },
             "deposit_valid": capture(
                 lambda: {
                     "amount": valid_deposit.amount,

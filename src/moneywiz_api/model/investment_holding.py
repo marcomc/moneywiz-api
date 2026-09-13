@@ -66,8 +66,17 @@ class InvestmentHolding(Record):
         self.symbol = row["ZSYMBOL"]
         self.holding_type = row["ZHOLDINGTYPE"]
         self.description = row["ZDESC"]
+        raw_price_per_share_available_online = row["ZISPRICEPERSHAREAVAILABLEONLINE"]
+        require_integer_identity(
+            raw_price_per_share_available_online,
+            "holding online-price state must be an uncoerced integer",
+        )
+        require_valid(
+            raw_price_per_share_available_online in (0, 1),
+            "holding online-price state must be zero or one",
+        )
         self.price_per_share_available_online = (
-            row["ZISPRICEPERSHAREAVAILABLEONLINE"] == 1
+            raw_price_per_share_available_online == 1
         )
 
         self._investment_object_type = row["ZINVESTMENTOBJECTTYPE"]

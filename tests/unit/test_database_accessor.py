@@ -98,3 +98,34 @@ def test_metadata_failures_close_connection_and_raise_schema_error(
 
     assert len(opened) == 1
     assert opened[0].was_closed
+
+
+@pytest.mark.parametrize("interruption_type", [KeyboardInterrupt, SystemExit])
+def test_schema_initialization_interruption_closes_connection_and_reraises(
+    tmp_path, monkeypatch, interruption_type
+) -> None:
+    path = tmp_path / "interrupted.sqlite"
+    sqlite3.connect(path).close()
+    original_connect = sqlite3.connect
+    opened = []
+    interruption = interruption_type("synthetic schema initialization interruption")
+
+    def tracked_connect(*args, **kwargs):
+        connection = original_connect(*args, factory=TrackingConnection, **kwargs)
+        opened.append(connection)
+        return connection
+
+    def interrupt_initialization(_self):
+        raise interruption
+
+    monkeypatch.setattr(sqlite3, "connect", tracked_connect)
+    monkeypatch.setattr(
+        DatabaseAccessor, "_initialize_schema_cache", interrupt_initialization
+    )
+
+    with pytest.raises(interruption_type) as error:
+        DatabaseAccessor(path)
+
+    assert error.value is interruption
+    assert len(opened) == 1
+    assert opened[0].was_closed

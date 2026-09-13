@@ -45,6 +45,10 @@ class Account(Record, ABC):
         require_valid(
             self.display_order is not None, "account display order is required"
         )
+        require_integer_identity(
+            self.display_order,
+            "account display order must be an uncoerced integer",
+        )
         require_valid(self.group_id is not None, "account group identity is required")
         require_integer_identity(
             self.group_id, "account group identity must be an uncoerced integer"

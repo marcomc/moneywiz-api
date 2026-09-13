@@ -96,6 +96,62 @@ def test_holding_uses_selected_profile_alias() -> None:
 
 
 @pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [(0, False), (1, True)],
+)
+def test_holding_preserves_binary_online_price_domain(raw_value, expected) -> None:
+    row = investment_holding_row()
+    row["ZISPRICEPERSHAREAVAILABLEONLINE"] = raw_value
+
+    assert (
+        InvestmentHolding(row, UNSUFFIXED_PROFILE).price_per_share_available_online
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    [None, False, True, -1, 2, 1.0, "PRIVATE_PAYLOAD"],
+)
+def test_holding_rejects_non_binary_or_coerced_online_price_state(
+    raw_value,
+) -> None:
+    row = investment_holding_row()
+    row["ZISPRICEPERSHAREAVAILABLEONLINE"] = raw_value
+
+    with pytest.raises(AssertionError) as error:
+        InvestmentHolding(row, UNSUFFIXED_PROFILE)
+
+    assert "PRIVATE_PAYLOAD" not in str(error.value)
+
+
+def test_holding_manager_reports_invalid_online_price_state_as_incomplete() -> None:
+    invalid = investment_holding_row()
+    invalid["ZISPRICEPERSHAREAVAILABLEONLINE"] = 2
+    valid = investment_holding_row()
+    valid.update(
+        {
+            "Z_PK": 25,
+            "ZGID": "holding-valid",
+            "ZISPRICEPERSHAREAVAILABLEONLINE": 1,
+        }
+    )
+
+    manager = InvestmentHoldingManager()
+    report = manager.load(ManagerAccessor("InvestmentHolding", invalid))
+
+    assert not report.complete
+    assert report.parsed_ids == ()
+    assert report.skipped[0].error.value == "validation"
+    assert manager.records() == {}
+
+    report = manager.load(ManagerAccessor("InvestmentHolding", valid))
+
+    assert report.complete
+    assert manager.get(25).price_per_share_available_online is True
+
+
+@pytest.mark.parametrize(
     ("constructor", "transaction_row"),
     [
         (InvestmentBuyTransaction, investment_transaction_row(40, -9.0)),

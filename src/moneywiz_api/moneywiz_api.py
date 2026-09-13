@@ -52,7 +52,7 @@ class MoneywizApi:
 
         try:
             self.load(managers)
-        except Exception:
+        except BaseException:
             self.close()
             raise
 

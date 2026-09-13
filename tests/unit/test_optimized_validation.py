@@ -69,6 +69,7 @@ def test_probe_covers_success_error_and_completeness_paths(
     assert cases["account_invalid_name_public"]["type"] == "AssertionError"
     assert cases["account_blob_name"]["type"] == "AssertionError"
     assert cases["account_blob_info"]["type"] == "AssertionError"
+    assert cases["account_coerced_display_order"]["type"] == "AssertionError"
     direct_accounts = cases["direct_accounts"]
     assert all(
         outcomes["valid"] == {"status": "ok", "value": None}
@@ -116,6 +117,20 @@ def test_probe_covers_success_error_and_completeness_paths(
         skipped["error"] == "validation" for skipped in cases["manager"]["skipped"]
     )
     assert cases["holding_missing_quantity"]["type"] == "AssertionError"
+    holding_online_price_state = cases["holding_online_price_state"]
+    assert holding_online_price_state["zero"] == {"status": "ok", "value": False}
+    assert holding_online_price_state["one"] == {"status": "ok", "value": True}
+    assert all(
+        holding_online_price_state[value]["type"] == "AssertionError"
+        for value in (
+            "none",
+            "false_boolean",
+            "true_boolean",
+            "two",
+            "float",
+            "text",
+        )
+    )
     assert cases["deposit_invalid_sign"]["type"] == "AssertionError"
     assert cases["deposit_coerced_account"]["type"] == "AssertionError"
     reconciled = cases["reconciled"]

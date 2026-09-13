@@ -140,6 +140,33 @@ def api_for(monkeypatch, accessor, managers):
     return api_module.MoneywizApi("unused.sqlite", managers=managers)
 
 
+@pytest.mark.parametrize("interruption_type", [KeyboardInterrupt, SystemExit])
+def test_constructor_interruption_closes_accessor_and_reraises(
+    monkeypatch, interruption_type
+) -> None:
+    import moneywiz_api.moneywiz_api as api_module
+
+    accessor = SyntheticAccessor()
+    accessor.closed = False
+    interruption = interruption_type("synthetic API construction interruption")
+
+    def interrupt_load(_self, _managers=None):
+        raise interruption
+
+    def close():
+        accessor.closed = True
+
+    accessor.close = close
+    monkeypatch.setattr(api_module, "DatabaseAccessor", lambda _path: accessor)
+    monkeypatch.setattr(api_module.MoneywizApi, "load", interrupt_load)
+
+    with pytest.raises(interruption_type) as error:
+        api_module.MoneywizApi("unused.sqlite")
+
+    assert error.value is interruption
+    assert accessor.closed
+
+
 @pytest.mark.parametrize(
     "failure",
     ["transaction_query", "category", "refund", "tags"],

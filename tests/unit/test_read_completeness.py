@@ -166,6 +166,39 @@ def test_failed_direct_reload_replaces_prior_report_with_unloaded_state() -> Non
     assert manager.records() == {}
 
 
+@pytest.mark.parametrize("interruption_type", [KeyboardInterrupt, SystemExit])
+def test_interrupted_reload_discards_partial_state_and_reraises(
+    interruption_type,
+) -> None:
+    manager = ExampleManager()
+    manager.load(RecordAccessor([record_row(record_id=9, gid="record-9")]))
+    interruption = interruption_type("synthetic interruption")
+
+    class InterruptingAccessor(RecordAccessor):
+        def __init__(self):
+            super().__init__([record_row(), record_row(record_id=2, gid="record-2")])
+            self.lookups = 0
+
+        def typename_for(self, ent_id):
+            self.lookups += 1
+            if self.lookups == 2:
+                raise interruption
+            return super().typename_for(ent_id)
+
+    with pytest.raises(interruption_type) as error:
+        manager.load(InterruptingAccessor())
+
+    assert error.value is interruption
+    assert manager.records() == {}
+    assert manager._gid_to_id == {}
+    assert manager.load_report.status == "unloaded"
+
+    report = manager.load(RecordAccessor([record_row(record_id=3, gid="record-3")]))
+
+    assert report.complete
+    assert list(manager.records()) == [3]
+
+
 def test_completed_load_with_only_invalid_rows_reports_error() -> None:
     manager = ExampleManager()
 

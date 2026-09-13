@@ -45,7 +45,7 @@ class RecordManager(ABC, Generic[T]):
         try:
             with db_accessor.read_transaction():
                 report = self._load_in_transaction(db_accessor)
-        except Exception:
+        except BaseException:
             self._discard_incomplete_load()
             raise
         self._load_report = report

@@ -96,6 +96,30 @@ def test_required_account_identity_remains_required() -> None:
     assert report.skipped[0].exception_type == "AssertionError"
 
 
+@pytest.mark.parametrize(
+    "raw_value",
+    [None, False, True, 1.0, "PRIVATE_PAYLOAD"],
+)
+def test_direct_accounts_reject_non_integer_display_order(raw_value) -> None:
+    with pytest.raises(AssertionError) as error:
+        CashAccount(account_row(ZDISPLAYORDER=raw_value))
+
+    assert "PRIVATE_PAYLOAD" not in str(error.value)
+
+
+def test_account_manager_skips_invalid_display_order_before_sorting() -> None:
+    invalid = account_row(ZDISPLAYORDER="PRIVATE_PAYLOAD")
+    valid = account_row(Z_PK=2, ZGID="account-2", ZDISPLAYORDER=2)
+    manager = AccountManager()
+
+    report = manager.load(AccountAccessor([invalid, valid]))
+
+    assert not report.complete
+    assert report.parsed_ids == (2,)
+    assert report.skipped[0].error.value == "validation"
+    assert list(manager.records()) == [2]
+
+
 @pytest.mark.parametrize("constructor", ACCOUNT_CONSTRUCTORS)
 @pytest.mark.parametrize("info_present", [True, False])
 def test_direct_account_constructors_accept_nullable_or_absent_info(

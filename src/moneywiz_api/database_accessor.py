@@ -71,8 +71,10 @@ class DatabaseAccessor:
         try:
             self._con.row_factory = dict_factory
             self._initialize_schema_cache()
-        except Exception as exc:
+        except BaseException as exc:
             self._con.close()
+            if not isinstance(exc, Exception):
+                raise
             if isinstance(exc, DatabaseSchemaError):
                 raise
             raise DatabaseSchemaError("database schema could not be read") from exc
