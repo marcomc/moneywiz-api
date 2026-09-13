@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -10,6 +11,48 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from moneywiz_api.types import ID
+
+
+class _FrozenMapping(dict):
+    """Recursively own published mapping values and refuse ordinary mutation."""
+
+    def __init__(self, values=()):
+        if getattr(self, "_initialized", False):
+            raise TypeError("published result mappings are immutable")
+        dict.__init__(
+            self,
+            ((key, _freeze_value(value)) for key, value in dict(values).items()),
+        )
+        self._initialized = True
+
+    @staticmethod
+    def _immutable(*_args, **_kwargs):
+        raise TypeError("published result mappings are immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    __ior__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+
+    def __deepcopy__(self, memo):
+        return type(self)(
+            (deepcopy(key, memo), deepcopy(value, memo)) for key, value in self.items()
+        )
+
+
+def _freeze_value(value: Any) -> Any:
+    """Recursively freeze mappings and sequences at a result boundary."""
+    if isinstance(value, _FrozenMapping):
+        return value
+    if isinstance(value, Mapping):
+        return _FrozenMapping(value)
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_value(item) for item in value)
+    return value
 
 
 class LoadErrorKind(str, Enum):
@@ -60,6 +103,11 @@ class RelationshipLoadReport:
     parsed_ids: tuple[ID | str, ...] = ()
     skipped: tuple[SkippedRecord, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_ids", tuple(self.source_ids))
+        object.__setattr__(self, "parsed_ids", tuple(self.parsed_ids))
+        object.__setattr__(self, "skipped", tuple(self.skipped))
+
     @property
     def source_count(self) -> int:
         return len(self.source_ids)
@@ -109,6 +157,12 @@ class ManagerLoadReport:
     skipped: tuple[SkippedRecord, ...] = ()
     relationships: Mapping[str, RelationshipLoadReport] = field(default_factory=dict)
     observed: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "source_ids", tuple(self.source_ids))
+        object.__setattr__(self, "parsed_ids", tuple(self.parsed_ids))
+        object.__setattr__(self, "skipped", tuple(self.skipped))
+        object.__setattr__(self, "relationships", _FrozenMapping(self.relationships))
 
     @classmethod
     def unloaded(cls) -> "ManagerLoadReport":
@@ -165,6 +219,9 @@ class ApiCompleteness:
 
     managers: Mapping[str, ManagerLoadReport]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "managers", _FrozenMapping(self.managers))
+
     @property
     def complete(self) -> bool:
         return bool(self.managers) and all(
@@ -195,15 +252,19 @@ class ApiCompleteness:
 class ReadSnapshot:
     """JSON-safe records and completeness metadata from one API instance."""
 
-    records: Mapping[str, tuple[dict[str, Any], ...]]
+    records: Mapping[str, tuple[Mapping[str, Any], ...]]
     completeness: ApiCompleteness
     schema_profile: Mapping[str, Any]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "records", _FrozenMapping(self.records))
+        object.__setattr__(self, "schema_profile", _FrozenMapping(self.schema_profile))
+
     def as_dict(self) -> dict[str, Any]:
         return {
-            "schema_profile": dict(self.schema_profile),
+            "schema_profile": json_safe(self.schema_profile),
             "completeness": self.completeness.as_dict(),
-            "records": {name: list(records) for name, records in self.records.items()},
+            "records": json_safe(self.records),
         }
 
 

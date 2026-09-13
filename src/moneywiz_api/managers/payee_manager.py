@@ -13,3 +13,7 @@ class PayeeManager(RecordManager[Payee]):
         return {
             "Payee": Payee,
         }
+
+    @property
+    def entity_roots(self) -> tuple[str, ...]:
+        return ("Payee",)

@@ -13,3 +13,7 @@ class TagManager(RecordManager[Tag]):
         return {
             "Tag": Tag,
         }
+
+    @property
+    def entity_roots(self) -> tuple[str, ...]:
+        return ("Tag",)

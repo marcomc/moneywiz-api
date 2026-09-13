@@ -168,6 +168,9 @@ def accessor_for(row):
 
 
 class PayeeAccessor:
+    def descendant_typenames(self, _roots):
+        return ["Payee"]
+
     def query_objects(self, _typenames):
         return [
             {
@@ -189,6 +192,9 @@ class PayeeAccessor:
 class CategoryAccessor:
     def __init__(self, rows):
         self.rows = rows
+
+    def descendant_typenames(self, _roots):
+        return ["Category"]
 
     def query_objects(self, _typenames):
         return self.rows

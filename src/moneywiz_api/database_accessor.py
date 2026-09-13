@@ -363,11 +363,38 @@ class DatabaseAccessor:
                 "database schema changed; close and reopen the accessor"
             )
 
+    def _verify_source_eligibility(self) -> None:
+        """Reject rows whose entity ancestry cannot be classified safely."""
+        try:
+            rows = self._con.execute(
+                "SELECT DISTINCT Z_ENT FROM ZSYNCOBJECT ORDER BY Z_ENT"
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise DatabaseSchemaError(
+                "database entity sources could not be verified"
+            ) from exc
+
+        for row in rows:
+            current = row["Z_ENT"]
+            if not isinstance(current, int) or current not in self._ent_to_super:
+                raise DatabaseSchemaError(
+                    "database contains rows with unclassifiable entity ancestry"
+                )
+            visited: set[int] = set()
+            while current != 0:
+                if current in visited or current not in self._ent_to_super:
+                    raise DatabaseSchemaError(
+                        "database contains rows with unclassifiable entity ancestry"
+                    )
+                visited.add(current)
+                current = self._ent_to_super[current]
+
     @contextmanager
     def read_transaction(self):
         """Keep cache-dependent reads on one verified SQLite snapshot."""
         with self._raw_read_transaction():
             self._verify_schema_identity()
+            self._verify_source_eligibility()
             yield
 
     def __enter__(self):

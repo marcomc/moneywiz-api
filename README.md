@@ -90,6 +90,10 @@ owned by budgets, scheduled transactions, or history items are outside that
 map. `snapshot` contains JSON-safe records, completeness, and the selected
 schema profile.
 
+Published completeness and snapshot values own immutable nested mappings and
+sequences, so later caller or manager changes cannot rewrite earlier evidence.
+Their `as_dict()` and `json_safe()` outputs are detached mutable JSON trees.
+
 A public manager that has not completed a load exposes a `load_report` with
 status `unloaded` and `complete == False`. A successful zero-row load is instead
 `complete`, so an empty result is distinguishable from an unobserved manager.
@@ -102,6 +106,9 @@ the previously published records and completeness evidence remain available.
 Schema metadata and physical table definitions are bound when the accessor is
 opened; if either changes, cache-dependent reads require closing and reopening
 the API instead of combining current rows with stale schema information.
+Each verified read also rejects physical rows with NULL, unmapped, missing-parent,
+or cyclic entity ancestry. Unknown descendants of a requested manager root are
+included as skipped source rows instead of disappearing from completeness.
 
 ## Contribution
 
