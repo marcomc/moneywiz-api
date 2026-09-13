@@ -93,6 +93,9 @@ and each multi-manager load uses one consistent SQLite read transaction. A
 later scoped load atomically refreshes the union of requested and already loaded
 managers so one snapshot never mixes database generations. If a reload fails,
 the previously published records and completeness evidence remain available.
+Schema metadata and physical table definitions are bound when the accessor is
+opened; if either changes, cache-dependent reads require closing and reopening
+the API instead of combining current rows with stale schema information.
 
 ## Contribution
 

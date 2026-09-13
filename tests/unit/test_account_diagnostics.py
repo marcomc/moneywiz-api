@@ -1,6 +1,5 @@
 import pytest
 
-from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.managers.account_manager import AccountManager
 from moneywiz_api.model.account import (
     Account,
@@ -12,6 +11,7 @@ from moneywiz_api.model.account import (
     InvestmentAccount,
     LoanAccount,
 )
+from tests.unit.accessor_test_support import initialized_memory_accessor
 
 
 ACCOUNT_CONSTRUCTORS = (
@@ -162,29 +162,8 @@ def test_direct_account_validation_does_not_serialize_source(monkeypatch) -> Non
     assert "PRIVATE_PAYLOAD" not in str(error.value)
 
 
-class StaticCursor:
-    def __init__(self, row):
-        self.row = row
-
-    def execute(self, _query, _parameters):
-        return self
-
-    def fetchone(self):
-        return self.row
-
-
-class StaticConnection:
-    def __init__(self, row):
-        self.row = row
-
-    def cursor(self):
-        return StaticCursor(self.row)
-
-
 def accessor_for(row):
-    accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    accessor._con = StaticConnection(row)
-    return accessor
+    return initialized_memory_accessor([row], [(13, "CreditCardAccount", 0)])
 
 
 def test_public_accessor_validates_nullable_info_after_construction() -> None:

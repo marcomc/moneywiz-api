@@ -70,6 +70,16 @@ class DatabaseAccessor:
 
         try:
             self._con.row_factory = dict_factory
+            self._initialize_schema_cache()
+        except Exception as exc:
+            self._con.close()
+            if isinstance(exc, DatabaseSchemaError):
+                raise
+            raise DatabaseSchemaError("database schema could not be read") from exc
+
+    def _initialize_schema_cache(self) -> None:
+        """Bind all schema-dependent caches from one SQLite snapshot."""
+        with self._raw_read_transaction():
             if not self._table_exists("Z_PRIMARYKEY") or not self._table_exists(
                 "ZSYNCOBJECT"
             ):
@@ -83,29 +93,30 @@ class DatabaseAccessor:
                 raise DatabaseSchemaError(
                     "Z_PRIMARYKEY is missing required entity metadata columns"
                 )
-            self._schema_profile = detect_schema_profile(self._con)
-            self._ent_to_typename, self._ent_to_super = self._load_primarykey()
-        except Exception as exc:
-            self._con.close()
-            if isinstance(exc, DatabaseSchemaError):
-                raise
-            raise DatabaseSchemaError("database schema could not be read") from exc
-        self._typename_to_ent: Dict[str, ENT_ID] = {
-            v: k for k, v in self._ent_to_typename.items()
-        }
+            schema_identity = self._read_schema_identity()
+            schema_profile = detect_schema_profile(self._con)
+            ent_to_typename, ent_to_super, typename_to_ent = self._entity_maps(
+                schema_identity[1]
+            )
 
-    def _load_primarykey(self) -> tuple[Dict[int, str], Dict[int, int]]:
+        self._schema_identity = schema_identity
+        self._schema_profile = schema_profile
+        self._ent_to_typename = ent_to_typename
+        self._ent_to_super = ent_to_super
+        self._typename_to_ent = typename_to_ent
+
+    def _read_entity_metadata(self) -> tuple[tuple[int, str, int], ...]:
         cur = self._con.cursor()
         res = cur.execute(
             """
         SELECT Z_ENT, Z_NAME, Z_SUPER
         FROM "Z_PRIMARYKEY"
         ORDER BY Z_ENT
-        LIMIT 1000 OFFSET 0;
         """
         )
-        ent_to_typename: Dict[int, str] = {}
-        ent_to_super: Dict[int, int] = {}
+        rows: list[tuple[int, str, int]] = []
+        ent_ids: set[int] = set()
+        typenames: set[str] = set()
         for row in res.fetchall():
             ent_id = row["Z_ENT"]
             typename = row["Z_NAME"]
@@ -117,9 +128,45 @@ class DatabaseAccessor:
                 or not isinstance(super_id, int)
             ):
                 raise DatabaseSchemaError("Z_PRIMARYKEY contains invalid metadata")
-            ent_to_typename[ent_id] = typename
-            ent_to_super[ent_id] = super_id
-        return ent_to_typename, ent_to_super
+            if ent_id in ent_ids:
+                raise DatabaseSchemaError("Z_PRIMARYKEY contains duplicate entity IDs")
+            if typename in typenames:
+                raise DatabaseSchemaError(
+                    "Z_PRIMARYKEY contains duplicate entity names"
+                )
+            ent_ids.add(ent_id)
+            typenames.add(typename)
+            rows.append((ent_id, typename, super_id))
+        return tuple(rows)
+
+    @staticmethod
+    def _entity_maps(
+        rows: tuple[tuple[int, str, int], ...],
+    ) -> tuple[Dict[int, str], Dict[int, int], Dict[str, int]]:
+        ent_to_typename = {ent_id: typename for ent_id, typename, _ in rows}
+        ent_to_super = {ent_id: super_id for ent_id, _, super_id in rows}
+        typename_to_ent = {typename: ent_id for ent_id, typename, _ in rows}
+        return ent_to_typename, ent_to_super, typename_to_ent
+
+    def _read_schema_identity(
+        self,
+    ) -> tuple[
+        tuple[tuple[str, str, str, str | None], ...],
+        tuple[tuple[int, str, int], ...],
+    ]:
+        schema_rows = self._con.execute(
+            """
+            SELECT type, name, tbl_name, sql
+            FROM sqlite_schema
+            WHERE name NOT LIKE 'sqlite_%'
+            ORDER BY type, name, tbl_name
+            """
+        ).fetchall()
+        physical_schema = tuple(
+            (row["type"], row["name"], row["tbl_name"], row["sql"])
+            for row in schema_rows
+        )
+        return physical_schema, self._read_entity_metadata()
 
     def __repr__(self):
         return "\n".join(
@@ -261,6 +308,11 @@ class DatabaseAccessor:
         return LoadErrorKind.CONSTRUCTION
 
     def query_objects(self, typenames: List[str]) -> List[Any]:
+        """Query live rows against the verified cached entity mapping."""
+        with self.read_transaction():
+            return self._query_objects(typenames)
+
+    def _query_objects(self, typenames: List[str]) -> List[Any]:
         ent_ids = [self.ent_for(name) for name in typenames]
         ent_ids = [ent_id for ent_id in ent_ids if ent_id is not None]
         if not ent_ids:
@@ -280,8 +332,8 @@ class DatabaseAccessor:
         self._con.close()
 
     @contextmanager
-    def read_transaction(self):
-        """Keep a selected multi-manager load on one SQLite snapshot."""
+    def _raw_read_transaction(self):
+        """Provide snapshot ownership without consulting schema caches."""
         owns_transaction = not self._con.in_transaction
         if owns_transaction:
             self._con.execute("BEGIN")
@@ -290,6 +342,33 @@ class DatabaseAccessor:
         finally:
             if owns_transaction and self._con.in_transaction:
                 self._con.rollback()
+
+    def _verify_schema_identity(self) -> None:
+        try:
+            baseline = self._schema_identity
+        except AttributeError as exc:
+            raise DatabaseSchemaError(
+                "database schema cache is not initialized; close and reopen the accessor"
+            ) from exc
+        try:
+            current = self._read_schema_identity()
+        except DatabaseSchemaError:
+            raise
+        except sqlite3.Error as exc:
+            raise DatabaseSchemaError(
+                "database schema could not be verified; close and reopen the accessor"
+            ) from exc
+        if current != baseline:
+            raise DatabaseSchemaError(
+                "database schema changed; close and reopen the accessor"
+            )
+
+    @contextmanager
+    def read_transaction(self):
+        """Keep cache-dependent reads on one verified SQLite snapshot."""
+        with self._raw_read_transaction():
+            self._verify_schema_identity()
+            yield
 
     def __enter__(self):
         return self
@@ -313,6 +392,10 @@ class DatabaseAccessor:
         return record
 
     def get_record(self, pk_id: ID, constructor: Callable = Record):
+        with self.read_transaction():
+            return self._get_record(pk_id, constructor)
+
+    def _get_record(self, pk_id: ID, constructor: Callable):
         cur = self._con.cursor()
         res = cur.execute(
             """
@@ -325,6 +408,10 @@ class DatabaseAccessor:
         return self._construct_record(res.fetchone(), constructor)
 
     def get_record_by_gid(self, gid: GID, constructor: Callable = Record):
+        with self.read_transaction():
+            return self._get_record_by_gid(gid, constructor)
+
+    def _get_record_by_gid(self, gid: GID, constructor: Callable):
         cur = self._con.cursor()
         res = cur.execute(
             """
@@ -337,6 +424,12 @@ class DatabaseAccessor:
         return self._construct_record(res.fetchone(), constructor)
 
     def read_category_assignments(
+        self,
+    ) -> tuple[Dict[ID, List[Tuple[ID, Decimal]]], RelationshipLoadReport]:
+        with self.read_transaction():
+            return self._read_category_assignments()
+
+    def _read_category_assignments(
         self,
     ) -> tuple[Dict[ID, List[Tuple[ID, Decimal]]], RelationshipLoadReport]:
         transaction_map: Dict[ID, List[Tuple[ID, Decimal]]] = defaultdict(list)
@@ -400,10 +493,17 @@ class DatabaseAccessor:
 
     def get_category_assignment(self) -> Dict[ID, List[Tuple[ID, Decimal]]]:
         """Return category assignments without completeness metadata."""
-        assignments, _ = self.read_category_assignments()
-        return assignments
+        with self.read_transaction():
+            assignments, _ = self._read_category_assignments()
+            return assignments
 
     def read_refund_maps(
+        self,
+    ) -> tuple[Dict[ID, ID], RelationshipLoadReport]:
+        with self.read_transaction():
+            return self._read_refund_maps()
+
+    def _read_refund_maps(
         self,
     ) -> tuple[Dict[ID, ID], RelationshipLoadReport]:
         refund_to_withdraw: Dict[ID, ID] = {}
@@ -463,10 +563,17 @@ class DatabaseAccessor:
 
     def get_refund_maps(self) -> Dict[ID, ID]:
         """Return refund links without completeness metadata."""
-        refund_maps, _ = self.read_refund_maps()
-        return refund_maps
+        with self.read_transaction():
+            refund_maps, _ = self._read_refund_maps()
+            return refund_maps
 
     def read_tags_map(
+        self,
+    ) -> tuple[Dict[ID, List[ID]], RelationshipLoadReport]:
+        with self.read_transaction():
+            return self._read_tags_map()
+
+    def _read_tags_map(
         self,
     ) -> tuple[Dict[ID, List[ID]], RelationshipLoadReport]:
         transactions_to_tags: Dict[ID, List[ID]] = defaultdict(list)
@@ -531,8 +638,9 @@ class DatabaseAccessor:
 
     def get_tags_map(self) -> Dict[ID, List[ID]]:
         """Return transaction tags without completeness metadata."""
-        transactions_to_tags, _ = self.read_tags_map()
-        return transactions_to_tags
+        with self.read_transaction():
+            transactions_to_tags, _ = self._read_tags_map()
+            return transactions_to_tags
 
     def get_users(self) -> Dict[ID, str]:
         users_map: Dict[ID, str] = {}

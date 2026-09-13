@@ -36,6 +36,7 @@ from moneywiz_api.model.transaction import (
     WithdrawTransaction,
 )
 from moneywiz_api.schema_profile import SchemaProfile
+from accessor_test_support import initialized_memory_accessor
 
 
 PROFILE = SchemaProfile(
@@ -162,29 +163,8 @@ def transfer_withdraw_row(**overrides):
     return row
 
 
-class StaticCursor:
-    def __init__(self, row):
-        self.row = row
-
-    def execute(self, _query, _parameters):
-        return self
-
-    def fetchone(self):
-        return self.row
-
-
-class StaticConnection:
-    def __init__(self, row):
-        self.row = row
-
-    def cursor(self):
-        return StaticCursor(self.row)
-
-
 def accessor_for(row):
-    accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    accessor._con = StaticConnection(row)
-    return accessor
+    return initialized_memory_accessor([row], [(13, "CreditCardAccount", 0)])
 
 
 class PayeeAccessor:

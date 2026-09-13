@@ -4,7 +4,6 @@ import pytest
 
 from moneywiz_api.managers.investment_holding_manager import InvestmentHoldingManager
 from moneywiz_api.managers.transaction_manager import TransactionManager
-from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.investment_holding import InvestmentHolding
 from moneywiz_api.model.transaction import (
     InvestmentBuyTransaction,
@@ -12,6 +11,7 @@ from moneywiz_api.model.transaction import (
 )
 from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.read_result import RelationshipLoadReport, RelationshipStorage
+from tests.unit.accessor_test_support import initialized_memory_accessor
 
 
 UNSUFFIXED_PROFILE = SchemaProfile(
@@ -170,32 +170,21 @@ def test_managers_load_profiled_investment_records() -> None:
     assert holding_manager.get(24).number_of_shares == Decimal("2.0")
 
 
-class StaticCursor:
-    def __init__(self, row: dict):
-        self.row = row
-
-    def execute(self, _query, _parameters):
-        return self
-
-    def fetchone(self):
-        return self.row
-
-
-class StaticConnection:
-    def __init__(self, row: dict):
-        self.row = row
-
-    def cursor(self):
-        return StaticCursor(self.row)
-
-
 def test_accessor_public_constructors_receive_schema_profile() -> None:
-    transaction_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    transaction_accessor._con = StaticConnection(investment_transaction_row(40, -20.0))
-    transaction_accessor._schema_profile = UNSUFFIXED_PROFILE
-    holding_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    holding_accessor._con = StaticConnection(investment_holding_row())
-    holding_accessor._schema_profile = UNSUFFIXED_PROFILE
+    transaction_row = investment_transaction_row(40, -20.0)
+    transaction_row.pop("ZNUMBEROFSHARES1")
+    transaction_row.pop("ZPRICEPERSHARE1")
+    holding_row = investment_holding_row()
+    holding_row.pop("ZNUMBEROFSHARES1")
+    holding_row.pop("ZPRICEPERSHARE1")
+    transaction_accessor = initialized_memory_accessor(
+        [transaction_row],
+        [(40, "InvestmentBuyTransaction", 0)],
+    )
+    holding_accessor = initialized_memory_accessor(
+        [holding_row],
+        [(24, "InvestmentHolding", 0)],
+    )
 
     transaction = transaction_accessor.get_record(40, InvestmentBuyTransaction)
     holding = holding_accessor.get_record_by_gid("holding", InvestmentHolding)
