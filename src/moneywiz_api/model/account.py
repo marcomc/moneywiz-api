@@ -1,10 +1,16 @@
 from abc import ABC
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Optional
 
 from moneywiz_api.types import ID
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
+from moneywiz_api.validation import (
+    require_integer_identity,
+    require_text,
+    require_valid,
+)
 
 
 @dataclass
@@ -19,7 +25,7 @@ class Account(Record, ABC):
     name: str
     currency: str
     opening_balance: Decimal  # might be a tiny number
-    info: str
+    info: Optional[str]
     user: ID
 
     def __init__(self, row):
@@ -30,20 +36,37 @@ class Account(Record, ABC):
         self.name = row["ZNAME"]
         self.currency = row["ZCURRENCYNAME"]
         self.opening_balance = RDH.get_decimal(row, "ZOPENINGBALANCE")
-        self.info = row["ZINFO"]
+        self.info = row.get("ZINFO")
 
         self.user = row["ZUSER"]
+        Account.validate(self)
 
-        # Fixes
-
-        # Validate
-        assert self.display_order is not None, self.as_dict()
-        assert self.group_id is not None, self.as_dict()
-        assert self.name is not None, self.as_dict()
-        assert self.currency is not None, self.as_dict()
-        assert self.opening_balance is not None, self.as_dict()
-        assert self.info is not None, self.as_dict()
-        assert self.user is not None, self.as_dict()
+    def validate(self) -> None:
+        require_valid(
+            self.display_order is not None, "account display order is required"
+        )
+        require_integer_identity(
+            self.display_order,
+            "account display order must be an uncoerced integer",
+        )
+        require_valid(self.group_id is not None, "account group identity is required")
+        require_integer_identity(
+            self.group_id, "account group identity must be an uncoerced integer"
+        )
+        require_valid(self.name is not None, "account name is required")
+        require_text(self.name, "account name must be an uncoerced string")
+        require_valid(self.currency is not None, "account currency is required")
+        require_valid(
+            self.opening_balance is not None, "account opening balance is required"
+        )
+        # info is nullable in valid MoneyWiz stores.
+        require_text(
+            self.info, "account info must be an uncoerced string", optional=True
+        )
+        require_valid(self.user is not None, "account owner is required")
+        require_integer_identity(
+            self.user, "account owner must be an uncoerced integer"
+        )
 
 
 @dataclass
@@ -87,9 +110,13 @@ class CreditCardAccount(Account):
     def __init__(self, row):
         super().__init__(row)
         self.statement_day = row["ZSTATEMENTENDDAY"]
+        CreditCardAccount.validate(self)
 
-        # Validate
-        assert self.statement_day is not None
+    def validate(self) -> None:
+        super().validate()
+        require_valid(
+            self.statement_day is not None, "account statement day is required"
+        )
 
 
 @dataclass

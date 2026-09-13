@@ -3,6 +3,11 @@ from typing import Optional
 
 from moneywiz_api.model.record import Record
 from moneywiz_api.types import CategoryType, ID
+from moneywiz_api.validation import (
+    require_integer_identity,
+    require_text,
+    require_valid,
+)
 
 
 @dataclass
@@ -26,12 +31,21 @@ class Category(Record):
         # Fixes
 
         # Validate
-        assert self.name is not None, self.as_dict()
-        assert self.type is not None, self.as_dict()
-        assert self.user is not None, self.as_dict()
+        require_valid(self.name is not None, "category name is required")
+        require_text(self.name, "category name must be an uncoerced string")
+        require_integer_identity(
+            self.parent_id,
+            "category parent must be an uncoerced integer",
+            optional=True,
+        )
+        require_valid(self.type is not None, "category type is required")
+        require_valid(self.user is not None, "category owner is required")
+        require_integer_identity(
+            self.user, "category owner must be an uncoerced integer"
+        )
 
     @staticmethod
     def _convert_type(type_: Optional[int]) -> CategoryType:
         if type_ and type_ in [1, 2]:
             return "Expenses" if type_ == 1 else "Income"
-        raise RuntimeError(f"Invalid type {type_}")
+        raise ValueError("unsupported category type")

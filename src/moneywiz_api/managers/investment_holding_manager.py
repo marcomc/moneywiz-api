@@ -17,6 +17,10 @@ class InvestmentHoldingManager(RecordManager[InvestmentHolding]):
             "InvestmentHolding": InvestmentHolding,
         }
 
+    @property
+    def entity_roots(self) -> tuple[str, ...]:
+        return ("InvestmentHolding",)
+
     def construct_record(
         self, constructor: Callable, record, db_accessor: DatabaseAccessor
     ):

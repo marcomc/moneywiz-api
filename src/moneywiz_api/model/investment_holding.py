@@ -6,6 +6,7 @@ from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
 from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
+from moneywiz_api.validation import require_integer_identity, require_valid
 
 
 @dataclass
@@ -18,7 +19,7 @@ class InvestmentHolding(Record):
     opening_number_of_shares: Optional[Decimal]
 
     number_of_shares: Decimal
-    # price_per_share: Decimal
+    price_per_share: Optional[Decimal]
     symbol: str
     holding_type: Optional[str]
     description: str
@@ -56,12 +57,26 @@ class InvestmentHolding(Record):
             "ZNUMBEROFSHARES",
             "ZNUMBEROFSHARES1",
         )
-        # self.price_per_share = row["ZPRICEPERSHARE"]
+        self.price_per_share = RDH.get_profile_nullable_decimal(
+            row,
+            schema_profile.holding_price_per_share_column if schema_profile else None,
+            "ZPRICEPERSHARE",
+            "ZPRICEPERSHARE1",
+        )
         self.symbol = row["ZSYMBOL"]
         self.holding_type = row["ZHOLDINGTYPE"]
         self.description = row["ZDESC"]
+        raw_price_per_share_available_online = row["ZISPRICEPERSHAREAVAILABLEONLINE"]
+        require_integer_identity(
+            raw_price_per_share_available_online,
+            "holding online-price state must be an uncoerced integer",
+        )
+        require_valid(
+            raw_price_per_share_available_online in (0, 1),
+            "holding online-price state must be zero or one",
+        )
         self.price_per_share_available_online = (
-            row["ZISPRICEPERSHAREAVAILABLEONLINE"] == 1
+            raw_price_per_share_available_online == 1
         )
 
         self._investment_object_type = row["ZINVESTMENTOBJECTTYPE"]
@@ -69,21 +84,27 @@ class InvestmentHolding(Record):
             row, "ZCOSTBASISOFMISSINGOBSHARES"
         )
 
-        # Fixes
-        self.number_of_shares = self.number_of_shares or Decimal(0)
-
         # Validate
         self.validate()
 
     def validate(self):
-        assert self.account is not None, self.as_dict()
-        assert self.number_of_shares is not None, self.as_dict()
-        # assert self.price_per_share is not None
-        assert self.symbol is not None, self.as_dict()
-        assert self.description is not None, self.as_dict()
+        require_valid(self.account is not None, "holding account is required")
+        require_integer_identity(
+            self.account, "holding account must be an uncoerced integer"
+        )
+        require_valid(self.number_of_shares is not None, "holding quantity is required")
+        # price_per_share can be None when no current quote is stored.
+        require_valid(self.symbol is not None, "holding symbol is required")
+        require_valid(self.description is not None, "holding description is required")
 
-        assert self._investment_object_type is not None, self.as_dict()
-        assert self._cost_basis_of_missing_ob_shares is not None, self.as_dict()
+        require_valid(
+            self._investment_object_type is not None,
+            "holding investment object type is required",
+        )
+        require_valid(
+            self._cost_basis_of_missing_ob_shares is not None,
+            "holding missing-share cost basis is required",
+        )
 
     def as_dict(self) -> Dict[str, Any]:
         original = super().as_dict()

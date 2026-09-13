@@ -15,6 +15,10 @@ class CategoryManager(RecordManager[Category]):
             "Category": Category,
         }
 
+    @property
+    def entity_roots(self) -> tuple[str, ...]:
+        return ("Category",)
+
     def get_name_chain(self, category_id: ID) -> List[str]:
         ret: List[str] = []
         current = self.get(category_id)

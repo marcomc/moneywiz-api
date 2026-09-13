@@ -31,6 +31,10 @@ class AccountManager(RecordManager[Account]):
             "ForexAccount": ForexAccount,
         }
 
+    @property
+    def entity_roots(self) -> tuple[str, ...]:
+        return ("Account",)
+
     def records(self) -> Dict[ID, Account]:
         return dict(sorted(super().records().items(), key=lambda x: x[1].display_order))
 

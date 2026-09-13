@@ -3,15 +3,16 @@ from datetime import datetime
 from decimal import Decimal
 
 from moneywiz_api.utils import get_datetime
+from moneywiz_api.validation import require_valid
 
 
 class RawDataHandler:
     @staticmethod
     def get_datetime(row: Dict[str, Any], key: str) -> datetime:
         raw_value = row[key]
-        assert isinstance(raw_value, float) or isinstance(raw_value, int), (
-            f"row['{key}'] = {row[key]}, is not a float or int, where row is: "
-            + str(RawDataHandler.filter_row(row))
+        require_valid(
+            isinstance(raw_value, float) or isinstance(raw_value, int),
+            "datetime field must be numeric",
         )
         return get_datetime(raw_value)
 
@@ -26,9 +27,9 @@ class RawDataHandler:
     @staticmethod
     def get_decimal(row: Dict[str, Any], key: str) -> Decimal:
         raw_value = row[key]
-        assert isinstance(raw_value, float) or isinstance(raw_value, int), (
-            f"row['{key}'] = {row[key]}, is not a float or int, where row is: "
-            + str(RawDataHandler.filter_row(row))
+        require_valid(
+            isinstance(raw_value, float) or isinstance(raw_value, int),
+            "decimal field must be numeric",
         )
         return Decimal(str(raw_value))
 

@@ -19,18 +19,32 @@ def test_detects_suffixed_fixture_profile() -> None:
     assert profile.profile_id == "suffixed-investment-columns"
     assert profile.holding_number_of_shares_column == "ZNUMBEROFSHARES1"
     assert profile.transaction_number_of_shares_column == "ZNUMBEROFSHARES1"
-    assert profile.price_per_share_column == "ZPRICEPERSHARE1"
+    assert profile.holding_price_per_share_column == "ZPRICEPERSHARE1"
+    assert profile.transaction_price_per_share_column == "ZPRICEPERSHARE1"
 
 
 def test_detects_unsuffixed_live_profile() -> None:
-    connection = make_connection("ZNUMBEROFSHARES", "ZPRICEPERSHARE", "ZPRICEPERSHARE1")
+    connection = make_connection("ZNUMBEROFSHARES", "ZPRICEPERSHARE")
 
     profile = detect_schema_profile(connection)
 
     assert profile.profile_id == "unsuffixed-investment-columns"
     assert profile.holding_number_of_shares_column == "ZNUMBEROFSHARES"
     assert profile.transaction_number_of_shares_column == "ZNUMBEROFSHARES"
-    assert profile.price_per_share_column == "ZPRICEPERSHARE"
+    assert profile.holding_price_per_share_column == "ZPRICEPERSHARE"
+    assert profile.transaction_price_per_share_column == "ZPRICEPERSHARE"
+
+
+def test_detects_consumer_specific_mixed_price_columns() -> None:
+    connection = make_connection("ZNUMBEROFSHARES", "ZPRICEPERSHARE", "ZPRICEPERSHARE1")
+
+    profile = detect_schema_profile(connection)
+
+    assert profile.profile_id == "mixed-investment-columns"
+    assert profile.holding_number_of_shares_column == "ZNUMBEROFSHARES"
+    assert profile.transaction_number_of_shares_column == "ZNUMBEROFSHARES"
+    assert profile.holding_price_per_share_column == "ZPRICEPERSHARE"
+    assert profile.transaction_price_per_share_column == "ZPRICEPERSHARE1"
 
 
 def test_detects_mixed_investment_columns() -> None:
@@ -41,7 +55,8 @@ def test_detects_mixed_investment_columns() -> None:
     assert profile.profile_id == "mixed-investment-columns"
     assert profile.holding_number_of_shares_column == "ZNUMBEROFSHARES"
     assert profile.transaction_number_of_shares_column == "ZNUMBEROFSHARES"
-    assert profile.price_per_share_column == "ZPRICEPERSHARE1"
+    assert profile.holding_price_per_share_column == "ZPRICEPERSHARE1"
+    assert profile.transaction_price_per_share_column == "ZPRICEPERSHARE1"
 
 
 def test_detects_consumer_specific_mixed_share_columns() -> None:
@@ -54,10 +69,11 @@ def test_detects_consumer_specific_mixed_share_columns() -> None:
     assert profile.profile_id == "mixed-investment-columns"
     assert profile.holding_number_of_shares_column == "ZNUMBEROFSHARES"
     assert profile.transaction_number_of_shares_column == "ZNUMBEROFSHARES1"
-    assert profile.price_per_share_column == "ZPRICEPERSHARE1"
+    assert profile.holding_price_per_share_column == "ZPRICEPERSHARE1"
+    assert profile.transaction_price_per_share_column == "ZPRICEPERSHARE1"
 
 
-def test_rejects_ambiguous_investment_column_profile() -> None:
+def test_detects_consumer_specific_mixed_share_and_price_columns() -> None:
     connection = make_connection(
         "ZNUMBEROFSHARES",
         "ZNUMBEROFSHARES1",
@@ -67,8 +83,11 @@ def test_rejects_ambiguous_investment_column_profile() -> None:
 
     profile = detect_schema_profile(connection)
 
-    assert profile.profile_id == "unknown"
-    assert not profile.is_known
+    assert profile.profile_id == "mixed-investment-columns"
+    assert profile.holding_number_of_shares_column == "ZNUMBEROFSHARES"
+    assert profile.transaction_number_of_shares_column == "ZNUMBEROFSHARES1"
+    assert profile.holding_price_per_share_column == "ZPRICEPERSHARE"
+    assert profile.transaction_price_per_share_column == "ZPRICEPERSHARE1"
 
 
 def test_decimal_alias_reads_both_profiles() -> None:

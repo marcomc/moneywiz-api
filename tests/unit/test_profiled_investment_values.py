@@ -1,31 +1,35 @@
+from contextlib import contextmanager
 from decimal import Decimal
 
 import pytest
 
 from moneywiz_api.managers.investment_holding_manager import InvestmentHoldingManager
 from moneywiz_api.managers.transaction_manager import TransactionManager
-from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.investment_holding import InvestmentHolding
 from moneywiz_api.model.transaction import (
     InvestmentBuyTransaction,
     InvestmentSellTransaction,
 )
 from moneywiz_api.schema_profile import SchemaProfile
+from moneywiz_api.read_result import RelationshipLoadReport, RelationshipStorage
+from tests.unit.accessor_test_support import initialized_memory_accessor
 
 
 UNSUFFIXED_PROFILE = SchemaProfile(
     profile_id="unsuffixed-investment-columns",
     holding_number_of_shares_column="ZNUMBEROFSHARES",
     transaction_number_of_shares_column="ZNUMBEROFSHARES",
-    price_per_share_column="ZPRICEPERSHARE",
+    holding_price_per_share_column="ZPRICEPERSHARE",
+    transaction_price_per_share_column="ZPRICEPERSHARE",
 )
 MIXED_PROFILE = SchemaProfile(
     profile_id="mixed-investment-columns",
     holding_number_of_shares_column="ZNUMBEROFSHARES",
     transaction_number_of_shares_column="ZNUMBEROFSHARES1",
-    price_per_share_column="ZPRICEPERSHARE1",
+    holding_price_per_share_column="ZPRICEPERSHARE",
+    transaction_price_per_share_column="ZPRICEPERSHARE1",
 )
-UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None)
+UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None, None)
 
 
 def investment_transaction_row(ent: int, amount: float) -> dict:
@@ -59,6 +63,8 @@ def investment_holding_row() -> dict:
         "ZOPENNINGNUMBEROFSHARES": None,
         "ZNUMBEROFSHARES": 2.0,
         "ZNUMBEROFSHARES1": 9.0,
+        "ZPRICEPERSHARE": 10.0,
+        "ZPRICEPERSHARE1": 1.0,
         "ZSYMBOL": "ACME",
         "ZHOLDINGTYPE": None,
         "ZDESC": "Acme Corp.",
@@ -86,6 +92,63 @@ def test_holding_uses_selected_profile_alias() -> None:
     holding = InvestmentHolding(investment_holding_row(), UNSUFFIXED_PROFILE)
 
     assert holding.number_of_shares == Decimal("2.0")
+    assert holding.price_per_share == Decimal("10.0")
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [(0, False), (1, True)],
+)
+def test_holding_preserves_binary_online_price_domain(raw_value, expected) -> None:
+    row = investment_holding_row()
+    row["ZISPRICEPERSHAREAVAILABLEONLINE"] = raw_value
+
+    assert (
+        InvestmentHolding(row, UNSUFFIXED_PROFILE).price_per_share_available_online
+        is expected
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    [None, False, True, -1, 2, 1.0, "PRIVATE_PAYLOAD"],
+)
+def test_holding_rejects_non_binary_or_coerced_online_price_state(
+    raw_value,
+) -> None:
+    row = investment_holding_row()
+    row["ZISPRICEPERSHAREAVAILABLEONLINE"] = raw_value
+
+    with pytest.raises(AssertionError) as error:
+        InvestmentHolding(row, UNSUFFIXED_PROFILE)
+
+    assert "PRIVATE_PAYLOAD" not in str(error.value)
+
+
+def test_holding_manager_reports_invalid_online_price_state_as_incomplete() -> None:
+    invalid = investment_holding_row()
+    invalid["ZISPRICEPERSHAREAVAILABLEONLINE"] = 2
+    valid = investment_holding_row()
+    valid.update(
+        {
+            "Z_PK": 25,
+            "ZGID": "holding-valid",
+            "ZISPRICEPERSHAREAVAILABLEONLINE": 1,
+        }
+    )
+
+    manager = InvestmentHoldingManager()
+    report = manager.load(ManagerAccessor("InvestmentHolding", invalid))
+
+    assert not report.complete
+    assert report.parsed_ids == ()
+    assert report.skipped[0].error.value == "validation"
+    assert manager.records() == {}
+
+    report = manager.load(ManagerAccessor("InvestmentHolding", valid))
+
+    assert report.complete
+    assert manager.get(25).price_per_share_available_online is True
 
 
 @pytest.mark.parametrize(
@@ -106,6 +169,7 @@ def test_mixed_profile_uses_consumer_specific_share_aliases(
     assert transaction.number_of_shares == Decimal("9.0")
     assert transaction.price_per_share == Decimal("1.0")
     assert holding.number_of_shares == Decimal("2.0")
+    assert holding.price_per_share == Decimal("10.0")
 
 
 class ProfileAccessor:
@@ -130,20 +194,27 @@ class ManagerAccessor(ProfileAccessor):
         self.typename = typename
         self.row = row
 
+    @contextmanager
+    def read_transaction(self):
+        yield
+
     def query_objects(self, _typenames):
         return [self.row]
+
+    def descendant_typenames(self, _roots):
+        return [self.typename]
 
     def typename_for(self, _ent_id):
         return self.typename
 
-    def get_category_assignment(self):
-        return {}
+    def read_category_assignments(self):
+        return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
-    def get_refund_maps(self):
-        return {}
+    def read_refund_maps(self):
+        return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
-    def get_tags_map(self):
-        return {}
+    def read_tags_map(self):
+        return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
 
 def test_managers_load_profiled_investment_records() -> None:
@@ -160,32 +231,21 @@ def test_managers_load_profiled_investment_records() -> None:
     assert holding_manager.get(24).number_of_shares == Decimal("2.0")
 
 
-class StaticCursor:
-    def __init__(self, row: dict):
-        self.row = row
-
-    def execute(self, _query, _parameters):
-        return self
-
-    def fetchone(self):
-        return self.row
-
-
-class StaticConnection:
-    def __init__(self, row: dict):
-        self.row = row
-
-    def cursor(self):
-        return StaticCursor(self.row)
-
-
 def test_accessor_public_constructors_receive_schema_profile() -> None:
-    transaction_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    transaction_accessor._con = StaticConnection(investment_transaction_row(40, -20.0))
-    transaction_accessor._schema_profile = UNSUFFIXED_PROFILE
-    holding_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    holding_accessor._con = StaticConnection(investment_holding_row())
-    holding_accessor._schema_profile = UNSUFFIXED_PROFILE
+    transaction_row = investment_transaction_row(40, -20.0)
+    transaction_row.pop("ZNUMBEROFSHARES1")
+    transaction_row.pop("ZPRICEPERSHARE1")
+    holding_row = investment_holding_row()
+    holding_row.pop("ZNUMBEROFSHARES1")
+    holding_row.pop("ZPRICEPERSHARE1")
+    transaction_accessor = initialized_memory_accessor(
+        [transaction_row],
+        [(40, "InvestmentBuyTransaction", 0)],
+    )
+    holding_accessor = initialized_memory_accessor(
+        [holding_row],
+        [(24, "InvestmentHolding", 0)],
+    )
 
     transaction = transaction_accessor.get_record(40, InvestmentBuyTransaction)
     holding = holding_accessor.get_record_by_gid("holding", InvestmentHolding)

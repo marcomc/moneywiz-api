@@ -13,7 +13,8 @@ class SchemaProfile:
     profile_id: str
     holding_number_of_shares_column: str | None
     transaction_number_of_shares_column: str | None
-    price_per_share_column: str | None
+    holding_price_per_share_column: str | None
+    transaction_price_per_share_column: str | None
 
     @property
     def is_known(self) -> bool:
@@ -30,37 +31,42 @@ def detect_schema_profile(connection: sqlite3.Connection) -> SchemaProfile:
     has_suffixed_price = "ZPRICEPERSHARE1" in columns
     has_unsuffixed_price = "ZPRICEPERSHARE" in columns
 
-    if (
-        has_suffixed_shares
-        and has_unsuffixed_shares
-        and has_suffixed_price
-        and has_unsuffixed_price
+    if not (has_suffixed_shares or has_unsuffixed_shares) or not (
+        has_suffixed_price or has_unsuffixed_price
     ):
         profile_id = "unknown"
         holding_number_of_shares_column = None
         transaction_number_of_shares_column = None
-        price_per_share_column = None
-    elif (
-        has_suffixed_shares
-        and has_unsuffixed_shares
-        and (has_suffixed_price or has_unsuffixed_price)
+        holding_price_per_share_column = None
+        transaction_price_per_share_column = None
+    elif (has_suffixed_shares and has_unsuffixed_shares) or (
+        has_suffixed_price and has_unsuffixed_price
     ):
         profile_id = "mixed-investment-columns"
-        holding_number_of_shares_column = "ZNUMBEROFSHARES"
-        transaction_number_of_shares_column = "ZNUMBEROFSHARES1"
-        price_per_share_column = (
+        holding_number_of_shares_column = (
+            "ZNUMBEROFSHARES" if has_unsuffixed_shares else "ZNUMBEROFSHARES1"
+        )
+        transaction_number_of_shares_column = (
+            "ZNUMBEROFSHARES1" if has_suffixed_shares else "ZNUMBEROFSHARES"
+        )
+        holding_price_per_share_column = (
+            "ZPRICEPERSHARE" if has_unsuffixed_price else "ZPRICEPERSHARE1"
+        )
+        transaction_price_per_share_column = (
             "ZPRICEPERSHARE1" if has_suffixed_price else "ZPRICEPERSHARE"
         )
     elif has_suffixed_shares and has_suffixed_price:
         profile_id = "suffixed-investment-columns"
         holding_number_of_shares_column = "ZNUMBEROFSHARES1"
         transaction_number_of_shares_column = "ZNUMBEROFSHARES1"
-        price_per_share_column = "ZPRICEPERSHARE1"
+        holding_price_per_share_column = "ZPRICEPERSHARE1"
+        transaction_price_per_share_column = "ZPRICEPERSHARE1"
     elif has_unsuffixed_shares and has_unsuffixed_price:
         profile_id = "unsuffixed-investment-columns"
         holding_number_of_shares_column = "ZNUMBEROFSHARES"
         transaction_number_of_shares_column = "ZNUMBEROFSHARES"
-        price_per_share_column = "ZPRICEPERSHARE"
+        holding_price_per_share_column = "ZPRICEPERSHARE"
+        transaction_price_per_share_column = "ZPRICEPERSHARE"
     elif (has_suffixed_shares or has_unsuffixed_shares) and (
         has_suffixed_price or has_unsuffixed_price
     ):
@@ -71,18 +77,19 @@ def detect_schema_profile(connection: sqlite3.Connection) -> SchemaProfile:
         transaction_number_of_shares_column = (
             "ZNUMBEROFSHARES1" if has_suffixed_shares else "ZNUMBEROFSHARES"
         )
-        price_per_share_column = (
+        holding_price_per_share_column = (
+            "ZPRICEPERSHARE" if has_unsuffixed_price else "ZPRICEPERSHARE1"
+        )
+        transaction_price_per_share_column = (
             "ZPRICEPERSHARE1" if has_suffixed_price else "ZPRICEPERSHARE"
         )
-    else:
-        profile_id = "unknown"
-        holding_number_of_shares_column = None
-        transaction_number_of_shares_column = None
-        price_per_share_column = None
+    else:  # pragma: no cover - exhaustive boolean cases above
+        raise AssertionError("unreachable investment schema profile")
 
     return SchemaProfile(
         profile_id=profile_id,
         holding_number_of_shares_column=holding_number_of_shares_column,
         transaction_number_of_shares_column=transaction_number_of_shares_column,
-        price_per_share_column=price_per_share_column,
+        holding_price_per_share_column=holding_price_per_share_column,
+        transaction_price_per_share_column=transaction_price_per_share_column,
     )
