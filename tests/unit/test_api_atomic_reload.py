@@ -56,22 +56,29 @@ class SyntheticAccessor:
         self.generation = "old"
         self.fail_at = None
         self.extra_invalid_account = False
-        self.in_transaction = False
+        self.transaction_depth = 0
         self.transaction_entries = 0
         self.transaction_exits = 0
+        self.exit_failure_depths = []
+
+    @property
+    def in_transaction(self):
+        return self.transaction_depth > 0
 
     @contextmanager
     def read_transaction(self):
-        if self.fail_at == "enter":
+        entered_depth = self.transaction_depth + 1
+        if self.fail_at == "enter" and entered_depth == 1:
             raise RuntimeError("synthetic transaction enter failure")
         self.transaction_entries += 1
-        self.in_transaction = True
+        self.transaction_depth = entered_depth
         try:
             yield
         finally:
-            self.in_transaction = False
+            self.transaction_depth -= 1
             self.transaction_exits += 1
-        if self.fail_at == "exit":
+        if self.fail_at == "exit" and entered_depth == 1:
+            self.exit_failure_depths.append(entered_depth)
             raise RuntimeError("synthetic transaction exit failure")
 
     def descendant_typenames(self, _roots):
@@ -208,6 +215,59 @@ def test_transaction_context_failure_does_not_publish(monkeypatch, failure) -> N
     assert not accessor.in_transaction
 
 
+def test_outer_exit_failure_retains_all_published_state_and_can_retry(
+    monkeypatch,
+) -> None:
+    accessor = SyntheticAccessor()
+    api = api_for(monkeypatch, accessor, ("accounts", "transactions"))
+    account_manager = api.account_manager
+    transaction_manager = api.transaction_manager
+    loaded_managers = api._loaded_managers
+    old_state = {
+        "account_records": account_manager._records,
+        "account_gid_index": account_manager._gid_to_id,
+        "account_report": account_manager.load_report,
+        "account": account_manager.get(1),
+        "transaction_records": transaction_manager._records,
+        "transaction_gid_index": transaction_manager._gid_to_id,
+        "transaction_report": transaction_manager.load_report,
+        "transaction": transaction_manager.get(10),
+        "categories": transaction_manager.category_assignment,
+        "refunds": transaction_manager.refund_maps,
+        "tags": transaction_manager.tags_map,
+    }
+    accessor.generation = "new"
+    accessor.fail_at = "exit"
+
+    with pytest.raises(RuntimeError, match="synthetic transaction exit failure"):
+        api.load(("transactions",))
+
+    assert accessor.exit_failure_depths == [1]
+    assert accessor.transaction_depth == 0
+    assert api.account_manager is account_manager
+    assert api.transaction_manager is transaction_manager
+    assert api._loaded_managers is loaded_managers
+    assert api._loaded_managers == {"accounts", "transactions"}
+    assert account_manager._records is old_state["account_records"]
+    assert account_manager._gid_to_id is old_state["account_gid_index"]
+    assert account_manager.load_report is old_state["account_report"]
+    assert account_manager.get(1) is old_state["account"]
+    assert transaction_manager._records is old_state["transaction_records"]
+    assert transaction_manager._gid_to_id is old_state["transaction_gid_index"]
+    assert transaction_manager.load_report is old_state["transaction_report"]
+    assert transaction_manager.get(10) is old_state["transaction"]
+    assert transaction_manager.category_assignment is old_state["categories"]
+    assert transaction_manager.refund_maps is old_state["refunds"]
+    assert transaction_manager.tags_map is old_state["tags"]
+
+    accessor.fail_at = None
+    report = api.load(("transactions",))
+
+    assert report.complete
+    assert api.account_manager.get(2).name == "New"
+    assert api.transaction_manager.get(20).account == 2
+
+
 def test_failed_new_selection_remains_unloaded_then_successful_retry_publishes(
     monkeypatch,
 ) -> None:
@@ -281,11 +341,12 @@ def test_direct_transaction_relationship_failure_stays_unloaded_then_retries(
 
 def test_successful_publication_occurs_after_transaction_exit(monkeypatch) -> None:
     accessor = SyntheticAccessor()
-    adoption_states = []
+    adoption_depths = []
     original_adopt = AccountManager._adopt_loaded_state
 
     def observe_adoption(self, staged):
-        adoption_states.append(accessor.in_transaction)
+        assert accessor.transaction_depth == 0
+        adoption_depths.append(accessor.transaction_depth)
         original_adopt(self, staged)
 
     monkeypatch.setattr(AccountManager, "_adopt_loaded_state", observe_adoption)
@@ -294,8 +355,8 @@ def test_successful_publication_occurs_after_transaction_exit(monkeypatch) -> No
 
     api.load(("accounts",))
 
-    assert adoption_states == [False, False]
-    assert accessor.transaction_entries == accessor.transaction_exits == 2
+    assert adoption_depths == [0, 0]
+    assert accessor.transaction_entries == accessor.transaction_exits == 4
 
 
 def test_partial_staged_generation_is_published(monkeypatch) -> None:

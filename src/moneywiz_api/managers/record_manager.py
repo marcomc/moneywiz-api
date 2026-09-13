@@ -41,16 +41,22 @@ class RecordManager(ABC, Generic[T]):
         return ()
 
     def load(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
-        report = self._load_records(db_accessor)
+        self._discard_incomplete_load()
+        try:
+            with db_accessor.read_transaction():
+                report = self._load_in_transaction(db_accessor)
+        except Exception:
+            self._discard_incomplete_load()
+            raise
         self._load_report = report
         return report
 
+    def _load_in_transaction(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
+        """Load all manager state inside the caller-owned read snapshot."""
+        return self._load_records(db_accessor)
+
     def _load_records(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
         """Read rows while keeping the public report unloaded until publication."""
-        self._records = {}
-        self._gid_to_id = {}
-        self._load_report = ManagerLoadReport.unloaded()
-
         typenames = list(self.ents)
         if self.entity_roots:
             discovered = db_accessor.descendant_typenames(self.entity_roots)
@@ -62,7 +68,8 @@ class RecordManager(ABC, Generic[T]):
         skipped: list[SkippedRecord] = []
 
         for record in records:
-            record_id = record.get("Z_PK")
+            raw_record_id = record.get("Z_PK")
+            record_id = raw_record_id if type(raw_record_id) is int else None
             source_ids.append(record_id)
             typename = None
             try:

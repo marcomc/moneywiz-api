@@ -1,3 +1,4 @@
+import json
 import sqlite3
 
 import pytest
@@ -186,6 +187,144 @@ def test_shifted_relationship_layouts_report_valid_and_skipped_rows(tmp_path) ->
         manager_report.as_dict()["relationships"]["transaction_tags"]["storage_name"]
         == "Z_37TAGS"
     )
+
+
+@pytest.mark.parametrize(
+    (
+        "reader_name",
+        "metadata",
+        "table_statement",
+        "valid_row",
+        "invalid_row",
+        "expected",
+        "expected_sources",
+        "expected_parsed",
+    ),
+    [
+        (
+            "read_category_assignments",
+            ((2, "CategoryAssigment", 0, 0),),
+            "CREATE TABLE ZCATEGORYASSIGMENT "
+            "(Z_PK INTEGER, ZCATEGORY INTEGER, ZTRANSACTION INTEGER, ZAMOUNT FLOAT)",
+            (1, 10, 100, 5.0),
+            (2, "PRIVATE_PAYLOAD", 101, 6.0),
+            {100: [(10, 5)]},
+            (1, 2),
+            (1,),
+        ),
+        (
+            "read_category_assignments",
+            ((2, "CategoryAssigment", 0, 0),),
+            "CREATE TABLE ZCATEGORYASSIGMENT "
+            "(Z_PK INTEGER, ZCATEGORY INTEGER, ZTRANSACTION INTEGER, ZAMOUNT FLOAT)",
+            (1, 10, 100, 5.0),
+            (2, 11, "PRIVATE_PAYLOAD", 6.0),
+            {100: [(10, 5)]},
+            (1, 2),
+            (1,),
+        ),
+        (
+            "read_category_assignments",
+            ((2, "CategoryAssigment", 0, 0),),
+            "CREATE TABLE ZCATEGORYASSIGMENT "
+            "(Z_PK INTEGER, ZCATEGORY INTEGER, ZTRANSACTION INTEGER, ZAMOUNT FLOAT)",
+            (1, 10, 100, 5.0),
+            ("PRIVATE_PAYLOAD", 11, 101, 6.0),
+            {100: [(10, 5)]},
+            (1, None),
+            (1,),
+        ),
+        (
+            "read_refund_maps",
+            ((50, "WithdrawRefundTransactionLink", 0, 0),),
+            "CREATE TABLE ZWITHDRAWREFUNDTRANSACTIONLINK "
+            "(Z_PK INTEGER, ZREFUNDTRANSACTION INTEGER, "
+            "ZWITHDRAWTRANSACTION INTEGER)",
+            (1, 100, 90),
+            (2, "PRIVATE_PAYLOAD", 91),
+            {100: 90},
+            (1, 2),
+            (1,),
+        ),
+        (
+            "read_refund_maps",
+            ((50, "WithdrawRefundTransactionLink", 0, 0),),
+            "CREATE TABLE ZWITHDRAWREFUNDTRANSACTIONLINK "
+            "(Z_PK INTEGER, ZREFUNDTRANSACTION INTEGER, "
+            "ZWITHDRAWTRANSACTION INTEGER)",
+            (1, 100, 90),
+            (2, 101, "PRIVATE_PAYLOAD"),
+            {100: 90},
+            (1, 2),
+            (1,),
+        ),
+        (
+            "read_refund_maps",
+            ((50, "WithdrawRefundTransactionLink", 0, 0),),
+            "CREATE TABLE ZWITHDRAWREFUNDTRANSACTIONLINK "
+            "(Z_PK INTEGER, ZREFUNDTRANSACTION INTEGER, "
+            "ZWITHDRAWTRANSACTION INTEGER)",
+            (1, 100, 90),
+            ("PRIVATE_PAYLOAD", 101, 91),
+            {100: 90},
+            (1, None),
+            (1,),
+        ),
+        (
+            "read_tags_map",
+            ((36, "Tag", 0, 0), (37, "Transaction", 0, 0)),
+            "CREATE TABLE Z_37TAGS (Z_37TRANSACTIONS INTEGER, Z_36TAGS INTEGER)",
+            (100, 200),
+            ("PRIVATE_PAYLOAD", 201),
+            {100: [200]},
+            ("100:200", "row:1"),
+            ("100:200",),
+        ),
+        (
+            "read_tags_map",
+            ((36, "Tag", 0, 0), (37, "Transaction", 0, 0)),
+            "CREATE TABLE Z_37TAGS (Z_37TRANSACTIONS INTEGER, Z_36TAGS INTEGER)",
+            (100, 200),
+            (101, "PRIVATE_PAYLOAD"),
+            {100: [200]},
+            ("100:200", "row:1"),
+            ("100:200",),
+        ),
+    ],
+)
+def test_integer_affinity_relationships_refuse_noninteger_raw_identities(
+    tmp_path,
+    reader_name,
+    metadata,
+    table_statement,
+    valid_row,
+    invalid_row,
+    expected,
+    expected_sources,
+    expected_parsed,
+) -> None:
+    path = tmp_path / f"{reader_name}-identity-domain.sqlite"
+    create_custom_relationship_schema(
+        path, metadata=metadata, tables=(table_statement,)
+    )
+    table_name = table_statement.split()[2]
+    with sqlite3.connect(path) as connection:
+        placeholders = ", ".join("?" for _ in valid_row)
+        connection.executemany(
+            f"INSERT INTO {table_name} VALUES ({placeholders})",
+            (valid_row, invalid_row),
+        )
+
+    with DatabaseAccessor(path) as accessor:
+        data, report = getattr(accessor, reader_name)()
+
+    assert data == expected
+    assert report.source_ids == expected_sources
+    assert report.parsed_ids == expected_parsed
+    assert report.source_count == 2
+    assert report.parsed_count == 1
+    assert report.skipped[0].error.value == "validation"
+    assert "PRIVATE_PAYLOAD" not in json.dumps(report.as_dict(), sort_keys=True)
 
 
 def test_category_counts_exclude_supported_nontransaction_owners(tmp_path) -> None:

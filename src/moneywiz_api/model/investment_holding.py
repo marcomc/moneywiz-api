@@ -6,7 +6,7 @@ from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
 from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
-from moneywiz_api.validation import require_valid
+from moneywiz_api.validation import require_integer_identity, require_valid
 
 
 @dataclass
@@ -80,6 +80,9 @@ class InvestmentHolding(Record):
 
     def validate(self):
         require_valid(self.account is not None, "holding account is required")
+        require_integer_identity(
+            self.account, "holding account must be an uncoerced integer"
+        )
         require_valid(self.number_of_shares is not None, "holding quantity is required")
         # price_per_share can be None when no current quote is stored.
         require_valid(self.symbol is not None, "holding symbol is required")

@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import json
 
 import pytest
@@ -25,6 +26,10 @@ def category_row(**overrides):
 class CategoryAccessor:
     def __init__(self, rows):
         self.rows = rows
+
+    @contextmanager
+    def read_transaction(self):
+        yield
 
     def descendant_typenames(self, _roots):
         return ["Category"]

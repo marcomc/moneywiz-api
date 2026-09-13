@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from decimal import Decimal
 
 import pytest
@@ -66,6 +67,10 @@ class TransferWithdrawManager(RecordManager):
 class TransferWithdrawAccessor:
     def __init__(self, rows):
         self.rows = rows
+
+    @contextmanager
+    def read_transaction(self):
+        yield
 
     def query_objects(self, _typenames):
         return self.rows

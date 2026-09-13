@@ -59,24 +59,15 @@ class TransactionManager(RecordManager[Transaction]):
             return constructor(record, schema_profile=db_accessor.schema_profile)
         return super().construct_record(constructor, record, db_accessor)
 
-    def load(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
-        self.category_assignment = {}
-        self.refund_maps = {}
-        self.tags_map = {}
-        try:
-            report = self._load_records(db_accessor)
-            category_assignment, category_report = (
-                db_accessor.read_category_assignments()
-            )
-            refund_maps, refund_report = db_accessor.read_refund_maps()
-            tags_map, tags_report = db_accessor.read_tags_map()
-        except Exception:
-            self._discard_incomplete_load()
-            raise
+    def _load_in_transaction(self, db_accessor: DatabaseAccessor) -> ManagerLoadReport:
+        report = super()._load_in_transaction(db_accessor)
+        category_assignment, category_report = db_accessor.read_category_assignments()
+        refund_maps, refund_report = db_accessor.read_refund_maps()
+        tags_map, tags_report = db_accessor.read_tags_map()
         self.category_assignment = category_assignment
         self.refund_maps = refund_maps
         self.tags_map = tags_map
-        self._load_report = replace(
+        return replace(
             report,
             relationships={
                 "category_assignments": category_report,
@@ -84,7 +75,13 @@ class TransactionManager(RecordManager[Transaction]):
                 "transaction_tags": tags_report,
             },
         )
-        return self._load_report
+
+    def _discard_incomplete_load(self) -> None:
+        """Clear records and relationships after an incomplete load."""
+        super()._discard_incomplete_load()
+        self.category_assignment = {}
+        self.refund_maps = {}
+        self.tags_map = {}
 
     def _adopt_loaded_state(self, staged: "TransactionManager") -> None:
         """Publish records and relationship state from one completed load."""

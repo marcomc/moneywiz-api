@@ -79,6 +79,10 @@ class RecordAccessor:
         self.rows = rows
         self.typenames = typenames or {1: "ExampleRecord"}
 
+    @contextmanager
+    def read_transaction(self):
+        yield
+
     def descendant_typenames(self, _roots):
         return list(self.typenames.values())
 
@@ -185,17 +189,27 @@ class FakeAccessor:
         )
         self.queries = []
         self.transaction_entries = 0
+        self.transaction_depth = 0
+        self.max_transaction_depth = 0
         self.closed = False
 
     @contextmanager
     def read_transaction(self):
         self.transaction_entries += 1
-        yield
+        self.transaction_depth += 1
+        self.max_transaction_depth = max(
+            self.max_transaction_depth, self.transaction_depth
+        )
+        try:
+            yield
+        finally:
+            self.transaction_depth -= 1
 
     def descendant_typenames(self, _roots):
         return []
 
     def query_objects(self, typenames):
+        assert self.transaction_depth == 2
         self.queries.append(tuple(typenames))
         return []
 
@@ -203,12 +217,15 @@ class FakeAccessor:
         return None
 
     def read_category_assignments(self):
+        assert self.transaction_depth == 2
         return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
     def read_refund_maps(self):
+        assert self.transaction_depth == 2
         return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
     def read_tags_map(self):
+        assert self.transaction_depth == 2
         return {}, RelationshipLoadReport(RelationshipStorage.ABSENT)
 
     def close(self):
@@ -233,7 +250,8 @@ def test_api_supports_scoped_loads_and_json_safe_snapshot(monkeypatch) -> None:
             "unsuffixed-investment-columns"
         )
         assert api.payee_manager.load_report.status == "unloaded"
-        assert api.accessor.transaction_entries == 1
+        assert api.accessor.transaction_entries == 3
+        assert api.accessor.max_transaction_depth == 2
         json.dumps(snapshot)
 
     assert api.accessor.closed
@@ -247,7 +265,8 @@ def test_api_preserves_default_eager_loading(monkeypatch) -> None:
     with api_module.MoneywizApi("unused.sqlite") as api:
         assert list(api.completeness().managers) == list(api.MANAGER_NAMES)
         assert len(api.accessor.queries) == len(api.MANAGER_NAMES)
-        assert api.accessor.transaction_entries == 1
+        assert api.accessor.transaction_entries == 7
+        assert api.accessor.max_transaction_depth == 2
 
 
 def test_api_rejects_unloaded_or_unknown_manager(monkeypatch) -> None:

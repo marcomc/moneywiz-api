@@ -10,7 +10,7 @@ from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
 from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
-from moneywiz_api.validation import require_valid
+from moneywiz_api.validation import require_integer_identity, require_valid
 
 ABS_TOLERANCE = 0.001
 
@@ -30,7 +30,16 @@ class Transaction(Record, ABC):
 
     def __init__(self, row):
         super().__init__(row)
-        self.reconciled = row["ZRECONCILED"] == 1
+        raw_reconciled = row["ZRECONCILED"]
+        require_integer_identity(
+            raw_reconciled,
+            "transaction reconciled state must be an uncoerced integer",
+        )
+        require_valid(
+            raw_reconciled in (0, 1),
+            "transaction reconciled state must be zero or one",
+        )
+        self.reconciled = raw_reconciled == 1
         self.amount = RDH.get_decimal(row, "ZAMOUNT1")
         self.description = row["ZDESC2"]
         self.datetime = RDH.get_datetime(row, "ZDATE1")
@@ -83,8 +92,16 @@ class DepositTransaction(Transaction):
 
     def validate(self):
         require_valid(self.account is not None, "deposit account is required")
+        require_integer_identity(
+            self.account, "deposit account must be an uncoerced integer"
+        )
         require_valid(self.amount is not None, "deposit amount is required")
         # self.payee can be None
+        require_integer_identity(
+            self.payee,
+            "deposit payee must be an uncoerced integer",
+            optional=True,
+        )
         require_valid(
             self.original_currency is not None, "deposit original currency is required"
         )
@@ -150,14 +167,25 @@ class InvestmentExchangeTransaction(Transaction):
 
     def validate(self):
         require_valid(self.account is not None, "exchange account is required")
+        require_integer_identity(
+            self.account, "exchange account must be an uncoerced integer"
+        )
         require_valid(
             self.from_investment_holding is not None,
             "exchange source holding is required",
+        )
+        require_integer_identity(
+            self.from_investment_holding,
+            "exchange source holding must be an uncoerced integer",
         )
         require_valid(self.from_symbol, "exchange source symbol is required")
         require_valid(
             self.to_investment_holding is not None,
             "exchange destination holding is required",
+        )
+        require_integer_identity(
+            self.to_investment_holding,
+            "exchange destination holding must be an uncoerced integer",
         )
         require_valid(self.to_symbol, "exchange destination symbol is required")
         require_valid(
@@ -235,6 +263,9 @@ class InvestmentBuyTransaction(InvestmentTransaction):
 
     def validate(self):
         require_valid(self.account is not None, "investment buy account is required")
+        require_integer_identity(
+            self.account, "investment buy account must be an uncoerced integer"
+        )
         require_valid(self.amount is not None, "investment buy amount is required")
         require_valid(self.amount <= 0, "investment buy amount must not be positive")
         require_valid(self.fee is not None, "investment buy fee is required")
@@ -248,6 +279,10 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         require_valid(
             self.investment_holding is not None,
             "investment buy holding is required",
+        )
+        require_integer_identity(
+            self.investment_holding,
+            "investment buy holding must be an uncoerced integer",
         )
         require_valid(
             self.number_of_shares is not None,
@@ -321,6 +356,9 @@ class InvestmentSellTransaction(InvestmentTransaction):
 
     def validate(self):
         require_valid(self.account is not None, "investment sell account is required")
+        require_integer_identity(
+            self.account, "investment sell account must be an uncoerced integer"
+        )
         require_valid(self.amount is not None, "investment sell amount is required")
 
         require_valid(self.fee is not None, "investment sell fee is required")
@@ -335,6 +373,10 @@ class InvestmentSellTransaction(InvestmentTransaction):
         require_valid(
             self.investment_holding is not None,
             "investment sell holding is required",
+        )
+        require_integer_identity(
+            self.investment_holding,
+            "investment sell holding must be an uncoerced integer",
         )
         require_valid(
             self.number_of_shares is not None,
@@ -382,6 +424,9 @@ class ReconcileTransaction(Transaction):
 
     def validate(self):
         require_valid(self.account is not None, "reconcile account is required")
+        require_integer_identity(
+            self.account, "reconcile account must be an uncoerced integer"
+        )
         require_valid(
             self.reconcile_amount is not None
             or self.reconcile_number_of_shares is not None,
@@ -425,6 +470,14 @@ class RefundTransaction(Transaction):
 
     def validate(self):
         require_valid(self.account is not None, "refund account is required")
+        require_integer_identity(
+            self.account, "refund account must be an uncoerced integer"
+        )
+        require_integer_identity(
+            self.payee,
+            "refund payee must be an uncoerced integer",
+            optional=True,
+        )
         require_valid(self.amount is not None, "refund amount is required")
         require_valid(self.amount > 0, "refund amount must be positive")
 
@@ -514,15 +567,26 @@ class TransferDepositTransaction(Transaction):
 
     def validate(self):
         require_valid(self.account is not None, "transfer deposit account is required")
+        require_integer_identity(
+            self.account, "transfer deposit account must be an uncoerced integer"
+        )
         require_valid(self.amount is not None, "transfer deposit amount is required")
         require_valid(self.amount > 0, "transfer deposit amount must be positive")
         require_valid(
             self.sender_account is not None,
             "transfer deposit sender account is required",
         )
+        require_integer_identity(
+            self.sender_account,
+            "transfer deposit sender account must be an uncoerced integer",
+        )
         require_valid(
             self.sender_transaction is not None,
             "transfer deposit sender transaction is required",
+        )
+        require_integer_identity(
+            self.sender_transaction,
+            "transfer deposit sender transaction must be an uncoerced integer",
         )
         require_valid(
             self.original_amount is not None,
@@ -633,15 +697,26 @@ class TransferWithdrawTransaction(Transaction):
         require_valid(
             self.account is not None, "transfer withdrawal account is required"
         )
+        require_integer_identity(
+            self.account, "transfer withdrawal account must be an uncoerced integer"
+        )
         require_valid(self.amount is not None, "transfer withdrawal amount is required")
         require_valid(self.amount < 0, "transfer withdrawal amount must be negative")
         require_valid(
             self.recipient_account is not None,
             "transfer withdrawal recipient account is required",
         )
+        require_integer_identity(
+            self.recipient_account,
+            "transfer withdrawal recipient account must be an uncoerced integer",
+        )
         require_valid(
             self.recipient_transaction is not None,
             "transfer withdrawal recipient transaction is required",
+        )
+        require_integer_identity(
+            self.recipient_transaction,
+            "transfer withdrawal recipient transaction must be an uncoerced integer",
         )
         require_valid(
             self.original_amount is not None,
@@ -732,8 +807,16 @@ class WithdrawTransaction(Transaction):
 
     def validate(self):
         require_valid(self.account is not None, "withdrawal account is required")
+        require_integer_identity(
+            self.account, "withdrawal account must be an uncoerced integer"
+        )
         require_valid(self.amount is not None, "withdrawal amount is required")
         # self.payee can be None
+        require_integer_identity(
+            self.payee,
+            "withdrawal payee must be an uncoerced integer",
+            optional=True,
+        )
         require_valid(
             self.original_currency is not None,
             "withdrawal original currency is required",

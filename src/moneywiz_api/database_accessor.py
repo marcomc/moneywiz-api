@@ -22,7 +22,7 @@ from moneywiz_api.read_result import (
 )
 from moneywiz_api.schema_profile import SchemaProfile, detect_schema_profile
 from moneywiz_api.types import ENT_ID, ID, GID
-from moneywiz_api.validation import require_valid
+from moneywiz_api.validation import require_integer_identity, require_valid
 
 
 TRANSACTION_TAG_TABLE_RE = re.compile(r"Z_\d+TAGS")
@@ -481,11 +481,16 @@ class DatabaseAccessor:
             "WHERE ZTRANSACTION IS NOT NULL"
         ).fetchall()
         for row in rows:
-            source_id = row.get("Z_PK")
+            raw_source_id = row.get("Z_PK")
+            source_id = raw_source_id if type(raw_source_id) is int else None
             source_ids.append(source_id)
             try:
                 require_valid(
-                    source_id is not None, "category assignment ID is required"
+                    raw_source_id is not None, "category assignment ID is required"
+                )
+                require_integer_identity(
+                    raw_source_id,
+                    "category assignment ID must be an uncoerced integer",
                 )
                 category_id = row["ZCATEGORY"]
                 transaction_id = row["ZTRANSACTION"]
@@ -496,6 +501,14 @@ class DatabaseAccessor:
                 require_valid(
                     transaction_id is not None,
                     "category assignment transaction endpoint is required",
+                )
+                require_integer_identity(
+                    category_id,
+                    "category assignment category endpoint must be an uncoerced integer",
+                )
+                require_integer_identity(
+                    transaction_id,
+                    "category assignment transaction endpoint must be an uncoerced integer",
                 )
                 amount = RDH.get_decimal(row, "ZAMOUNT")
                 transaction_map[transaction_id].append((category_id, amount))
@@ -554,10 +567,14 @@ class DatabaseAccessor:
             f'SELECT {", ".join(columns)} FROM "{table_name}"'
         ).fetchall()
         for row in rows:
-            source_id = row.get("Z_PK")
+            raw_source_id = row.get("Z_PK")
+            source_id = raw_source_id if type(raw_source_id) is int else None
             source_ids.append(source_id)
             try:
-                require_valid(source_id is not None, "refund link ID is required")
+                require_valid(raw_source_id is not None, "refund link ID is required")
+                require_integer_identity(
+                    raw_source_id, "refund link ID must be an uncoerced integer"
+                )
                 refund_id = row["ZREFUNDTRANSACTION"]
                 withdraw_id = row["ZWITHDRAWTRANSACTION"]
                 require_valid(
@@ -565,6 +582,14 @@ class DatabaseAccessor:
                 )
                 require_valid(
                     withdraw_id is not None, "withdraw transaction endpoint is required"
+                )
+                require_integer_identity(
+                    refund_id,
+                    "refund transaction endpoint must be an uncoerced integer",
+                )
+                require_integer_identity(
+                    withdraw_id,
+                    "withdraw transaction endpoint must be an uncoerced integer",
                 )
                 if refund_id in refund_to_withdraw:
                     raise ValueError()
@@ -631,7 +656,7 @@ class DatabaseAccessor:
             tag_id = row.get(tag_column)
             source_id = (
                 f"{transaction_id}:{tag_id}"
-                if transaction_id is not None and tag_id is not None
+                if type(transaction_id) is int and type(tag_id) is int
                 else f"row:{position}"
             )
             source_ids.append(source_id)
@@ -642,6 +667,14 @@ class DatabaseAccessor:
                 )
                 require_valid(
                     tag_id is not None, "transaction-tag tag endpoint is required"
+                )
+                require_integer_identity(
+                    transaction_id,
+                    "transaction-tag transaction endpoint must be an uncoerced integer",
+                )
+                require_integer_identity(
+                    tag_id,
+                    "transaction-tag tag endpoint must be an uncoerced integer",
                 )
                 transactions_to_tags[transaction_id].append(tag_id)
             except Exception as exc:

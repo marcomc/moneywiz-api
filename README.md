@@ -103,6 +103,16 @@ and each multi-manager load uses one consistent SQLite read transaction. A
 later scoped load atomically refreshes the union of requested and already loaded
 managers so one snapshot never mixes database generations. If a reload fails,
 the previously published records and completeness evidence remain available.
+Direct `manager.load(accessor)` calls use the same boundary: records,
+transaction relationships, and the published report come from one read
+snapshot, while a failed load resets that manager to `unloaded`.
+
+Core Data identity and relationship endpoint fields must arrive as uncoerced
+integers; nullable payee and category-parent references remain supported.
+Transaction reconciliation accepts only raw integer `0` or `1` before exposing
+the value as `bool`. Refused rows remain visible through identity-only
+completeness diagnostics without embedding malformed payload values.
+
 Schema metadata and physical table definitions are bound when the accessor is
 opened; if either changes, cache-dependent reads require closing and reopening
 the API instead of combining current rows with stale schema information.

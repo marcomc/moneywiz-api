@@ -6,7 +6,7 @@ from typing import Optional
 from moneywiz_api.types import ID
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
-from moneywiz_api.validation import require_valid
+from moneywiz_api.validation import require_integer_identity, require_valid
 
 
 @dataclass
@@ -42,6 +42,9 @@ class Account(Record, ABC):
             self.display_order is not None, "account display order is required"
         )
         require_valid(self.group_id is not None, "account group identity is required")
+        require_integer_identity(
+            self.group_id, "account group identity must be an uncoerced integer"
+        )
         require_valid(self.name is not None, "account name is required")
         require_valid(self.currency is not None, "account currency is required")
         require_valid(
@@ -49,6 +52,9 @@ class Account(Record, ABC):
         )
         # info is nullable in valid MoneyWiz stores.
         require_valid(self.user is not None, "account owner is required")
+        require_integer_identity(
+            self.user, "account owner must be an uncoerced integer"
+        )
 
 
 @dataclass

@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import pytest
 
 from moneywiz_api.managers.account_manager import AccountManager
@@ -48,6 +50,10 @@ def account_row(**overrides):
 class AccountAccessor:
     def __init__(self, rows):
         self.rows = rows
+
+    @contextmanager
+    def read_transaction(self):
+        yield
 
     def descendant_typenames(self, _roots):
         return ["CreditCardAccount"]

@@ -6,6 +6,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 
@@ -168,6 +169,10 @@ def accessor_for(row):
 
 
 class PayeeAccessor:
+    @contextmanager
+    def read_transaction(self):
+        yield
+
     def descendant_typenames(self, _roots):
         return ["Payee"]
 
@@ -183,6 +188,15 @@ class PayeeAccessor:
                 "ZNAME5": "B",
                 "ZUSER7": None,
             },
+            {
+                **common_row(
+                    Z_ENT=28,
+                    ZGID="payee-invalid-identity",
+                    Z_PK="PRIVATE_PAYLOAD",
+                ),
+                "ZNAME5": "C",
+                "ZUSER7": 1,
+            },
         ]
 
     def typename_for(self, _ent_id):
@@ -192,6 +206,10 @@ class PayeeAccessor:
 class CategoryAccessor:
     def __init__(self, rows):
         self.rows = rows
+
+    @contextmanager
+    def read_transaction(self):
+        yield
 
     def descendant_typenames(self, _roots):
         return ["Category"]
@@ -357,6 +375,8 @@ def relationship_probe():
                 (2, None, 101, 2.0),
                 (3, 12, 102, "PRIVATE_PAYLOAD"),
                 (4, 13, None, 4.0),
+                (5, "PRIVATE_PAYLOAD", 103, 1.0),
+                ("PRIVATE_PAYLOAD", 14, 104, 1.0),
             ],
         )
         connection.execute(
@@ -365,13 +385,19 @@ def relationship_probe():
         )
         connection.executemany(
             "INSERT INTO ZWITHDRAWREFUNDTRANSACTIONLINK VALUES (?, ?, ?)",
-            [(5, 103, 104), (6, 105, None)],
+            [
+                (5, 103, 104),
+                (6, 105, None),
+                (7, "PRIVATE_PAYLOAD", 106),
+                ("PRIVATE_PAYLOAD", 107, 108),
+            ],
         )
         connection.execute(
             "CREATE TABLE Z_37TAGS (Z_37TRANSACTIONS INTEGER, Z_36TAGS INTEGER)"
         )
         connection.executemany(
-            "INSERT INTO Z_37TAGS VALUES (?, ?)", [(100, 200), (101, None)]
+            "INSERT INTO Z_37TAGS VALUES (?, ?)",
+            [(100, 200), (101, None), ("PRIVATE_PAYLOAD", 201)],
         )
         connection.commit()
         connection.close()
@@ -462,6 +488,7 @@ def main():
             ),
             "record_valid": capture(lambda: Record(common_row()).gid),
             "record_invalid_identity": capture(lambda: Record(common_row(ZGID=""))),
+            "record_coerced_identity": capture(lambda: Record(common_row(Z_PK=True))),
             "account_nullable_info": capture(
                 lambda: {
                     "info": valid_account.info,
@@ -492,6 +519,28 @@ def main():
             "deposit_invalid_sign": capture(
                 lambda: DepositTransaction(transaction_row(ZORIGINALAMOUNT=-10.0))
             ),
+            "deposit_coerced_account": capture(
+                lambda: DepositTransaction(transaction_row(ZACCOUNT2="PRIVATE_PAYLOAD"))
+            ),
+            "reconciled": {
+                label: capture(
+                    lambda value=value: (
+                        DepositTransaction(
+                            transaction_row(ZRECONCILED=value)
+                        ).reconciled
+                    )
+                )
+                for label, value in (
+                    ("none", None),
+                    ("false_boolean", False),
+                    ("true_boolean", True),
+                    ("zero", 0),
+                    ("one", 1),
+                    ("two", 2),
+                    ("float", 1.0),
+                    ("text", "PRIVATE_PAYLOAD"),
+                )
+            },
             "deposit_invalid_fx": capture(
                 lambda: DepositTransaction(transaction_row(ZAMOUNT1=20.01))
             ),

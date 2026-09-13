@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from decimal import Decimal
 
 import pytest
@@ -136,6 +137,10 @@ class ManagerAccessor(ProfileAccessor):
     def __init__(self, typename: str, row: dict):
         self.typename = typename
         self.row = row
+
+    @contextmanager
+    def read_transaction(self):
+        yield
 
     def query_objects(self, _typenames):
         return [self.row]

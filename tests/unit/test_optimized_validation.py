@@ -63,6 +63,7 @@ def test_probe_covers_success_error_and_completeness_paths(
     }
     assert cases["date_string"]["type"] == "AssertionError"
     assert cases["record_invalid_identity"]["type"] == "AssertionError"
+    assert cases["record_coerced_identity"]["type"] == "AssertionError"
     assert cases["account_nullable_info"]["status"] == "ok"
     assert cases["account_invalid_name_public"]["type"] == "AssertionError"
     direct_accounts = cases["direct_accounts"]
@@ -99,10 +100,28 @@ def test_probe_covers_success_error_and_completeness_paths(
         named_entities[name]["type"] == "AssertionError"
         for name in ("payee_invalid", "tag_invalid", "category_invalid")
     )
+    assert cases["manager"]["source_ids"] == [10, 11, None]
     assert cases["manager"]["parsed_count"] == 1
-    assert cases["manager"]["skipped"][0]["error"] == "validation"
+    assert all(
+        skipped["error"] == "validation" for skipped in cases["manager"]["skipped"]
+    )
     assert cases["holding_missing_quantity"]["type"] == "AssertionError"
     assert cases["deposit_invalid_sign"]["type"] == "AssertionError"
+    assert cases["deposit_coerced_account"]["type"] == "AssertionError"
+    reconciled = cases["reconciled"]
+    assert reconciled["zero"] == {"status": "ok", "value": False}
+    assert reconciled["one"] == {"status": "ok", "value": True}
+    assert all(
+        reconciled[value]["type"] == "AssertionError"
+        for value in (
+            "none",
+            "false_boolean",
+            "true_boolean",
+            "two",
+            "float",
+            "text",
+        )
+    )
     assert cases["deposit_invalid_fx"]["type"] == "AssertionError"
     assert cases["deposit_zero_rate"] == {"status": "ok", "value": None}
     assert cases["investment_buy_invalid_quantity"]["type"] == "AssertionError"
@@ -111,12 +130,15 @@ def test_probe_covers_success_error_and_completeness_paths(
 
     relationships = cases["relationships"]
     assert relationships["category_report"]["parsed_count"] == 1
-    assert [item["error"] for item in relationships["category_report"]["skipped"]] == [
-        "validation",
-        "validation",
-    ]
+    assert all(
+        item["error"] == "validation"
+        for item in relationships["category_report"]["skipped"]
+    )
+    assert relationships["category_report"]["source_ids"][-1] is None
     assert relationships["refund_report"]["parsed_count"] == 1
+    assert relationships["refund_report"]["source_ids"][-1] is None
     assert relationships["tag_report"]["parsed_count"] == 1
+    assert relationships["tag_report"]["source_ids"][-1] == "row:2"
     assert not relationships["aggregate"]["complete"]
 
     serialized = json.dumps(cases["sentinel"], sort_keys=True)
