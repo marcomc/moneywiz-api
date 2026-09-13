@@ -128,6 +128,26 @@ MANAGER_CASES = [
 ]
 
 
+PARTIALLY_MIGRATED_HIERARCHIES = [
+    pytest.param(
+        AccountManager,
+        "Account",
+        "CashAccount",
+        10,
+        account_row,
+        id="account",
+    ),
+    pytest.param(
+        TransactionManager,
+        "Transaction",
+        "DepositTransaction",
+        38,
+        transaction_row,
+        id="transaction",
+    ),
+]
+
+
 def create_store(path: Path, metadata: list[tuple[int, str, int]], rows: list[dict]):
     connection = sqlite3.connect(path)
     connection.execute("PRAGMA journal_mode=WAL")
@@ -204,6 +224,43 @@ def test_all_managers_count_unknown_descendants(
     assert report.skipped[0].record_id == 2
     assert report.skipped[0].entity == unknown_name
     assert report.skipped[0].error.value == "unknown_entity"
+
+
+@pytest.mark.parametrize(
+    ("manager_type", "missing_root", "known_name", "known_id", "row_factory"),
+    PARTIALLY_MIGRATED_HIERARCHIES,
+)
+def test_unknown_descendant_is_counted_when_abstract_root_is_absent(
+    tmp_path,
+    manager_type,
+    missing_root,
+    known_name,
+    known_id,
+    row_factory,
+) -> None:
+    path = tmp_path / f"missing-{missing_root}.sqlite"
+    future_name = f"Future{known_name}"
+    create_store(
+        path,
+        [
+            (8, "SyncObject", 0),
+            (known_id, known_name, 8),
+            (91, future_name, known_id),
+        ],
+        [row_factory(), common_row(2, 91, f"future-{known_name.lower()}")],
+    )
+
+    with DatabaseAccessor(path) as accessor:
+        assert accessor.ent_for(missing_root) is None
+        report = manager_type().load(accessor)
+
+    assert set(report.source_ids) == {1, 2}
+    assert report.parsed_ids == (1,)
+    assert len(report.skipped) == 1
+    assert report.skipped[0].record_id == 2
+    assert report.skipped[0].entity == future_name
+    assert report.skipped[0].error.value == "unknown_entity"
+    assert not report.complete
 
 
 def orphan_metadata(kind: str) -> tuple[list[tuple[int, str, int]], int | None]:

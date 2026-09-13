@@ -59,7 +59,10 @@ class RecordManager(ABC, Generic[T]):
         """Read rows while keeping the public report unloaded until publication."""
         typenames = list(self.ents)
         if self.entity_roots:
-            discovered = db_accessor.descendant_typenames(self.entity_roots)
+            discovery_roots = tuple(
+                dict.fromkeys((*self.entity_roots, *self.ents.keys()))
+            )
+            discovered = db_accessor.descendant_typenames(discovery_roots)
             typenames = list(dict.fromkeys([*typenames, *discovered]))
         records = db_accessor.query_objects(typenames)
 
