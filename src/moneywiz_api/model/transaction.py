@@ -546,9 +546,9 @@ class TransferWithdrawTransaction(Transaction):
             self.recipient_amount = -self.original_amount * self.original_exchange_rate
         if self.recipient_amount is not None:
             self.recipient_amount = abs(self.recipient_amount)
-        if (
-            self.original_amount == 0
-            and self.recipient_amount not in (None, Decimal(0))
+        if self.original_amount == 0 and self.recipient_amount not in (
+            None,
+            Decimal(0),
         ):
             if self.original_exchange_rate == 0:
                 raise ValueError(

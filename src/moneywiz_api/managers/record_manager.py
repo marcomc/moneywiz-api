@@ -29,7 +29,9 @@ class RecordManager(ABC, Generic[T]):
             typename = db_accessor.typename_for(record["Z_ENT"])
             if typename in self.ents:
                 try:
-                    obj = self.construct_record(self.ents[typename], record, db_accessor)
+                    obj = self.construct_record(
+                        self.ents[typename], record, db_accessor
+                    )
                     obj.validate()
                 except (AssertionError, KeyError, ValueError) as exc:
                     record_id = record.get("Z_PK")
