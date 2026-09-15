@@ -32,7 +32,7 @@ class RawDataHandler:
         """Read a required decimal field from the first available column alias."""
         for key in keys:
             if key in row and row[key] is not None:
-                return RawDataHandler.get_decimal(row, key)
+                return RawDataHandler.get_decimal(row[key])
         raise KeyError(f"none of the schema aliases are present: {', '.join(keys)}")
 
     @staticmethod
@@ -41,7 +41,7 @@ class RawDataHandler:
     ) -> Decimal:
         """Read the schema-selected value, using aliases only for unknown profiles."""
         if selected_key is not None:
-            return RawDataHandler.get_decimal(row, selected_key)
+            return RawDataHandler.get_decimal(row[selected_key])
         return RawDataHandler.get_decimal_alias(row, *fallback_keys)
 
     @staticmethod
@@ -54,7 +54,7 @@ class RawDataHandler:
             if key in row:
                 found_alias = True
                 if row[key] is not None:
-                    return RawDataHandler.get_nullable_decimal(row, key)
+                    return RawDataHandler.get_nullable_decimal(row[key])
         if found_alias:
             return None
         raise KeyError(f"none of the schema aliases are present: {', '.join(keys)}")
@@ -65,7 +65,7 @@ class RawDataHandler:
     ) -> Optional[Decimal]:
         """Read an optional schema-selected value for a known profile."""
         if selected_key is not None:
-            return RawDataHandler.get_nullable_decimal(row, selected_key)
+            return RawDataHandler.get_nullable_decimal(row[selected_key])
         return RawDataHandler.get_nullable_decimal_alias(row, *fallback_keys)
 
     @staticmethod

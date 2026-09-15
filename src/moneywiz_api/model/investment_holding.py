@@ -62,7 +62,10 @@ class InvestmentHolding(Record):
         if schema_profile is not None and not schema_profile.is_known:
             raise ValueError("unsupported investment schema profile")
         overrides = {}
-        if schema_profile is not None:
+        if (
+            schema_profile is not None
+            and schema_profile.holding_number_of_shares_column is not None
+        ):
             overrides["number_of_shares"] = nullable_decimal_field(
                 schema_profile.holding_number_of_shares_column
             )

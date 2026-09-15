@@ -201,7 +201,11 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         if schema_profile is not None and not schema_profile.is_known:
             raise ValueError("unsupported investment schema profile")
         overrides = {}
-        if schema_profile is not None:
+        if (
+            schema_profile is not None
+            and schema_profile.transaction_number_of_shares_column is not None
+            and schema_profile.price_per_share_column is not None
+        ):
             overrides["number_of_shares"] = decimal_field(
                 schema_profile.transaction_number_of_shares_column
             )
@@ -220,7 +224,8 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         self.price_per_share = row.get("price_per_share")
 
         # Fixes
-        self.fee = max(self.fee, 0)
+        if self.fee < 0:
+            self.fee = Decimal(0)
 
     def validate(self) -> None:
         super().validate()
@@ -265,7 +270,11 @@ class InvestmentSellTransaction(InvestmentTransaction):
         if schema_profile is not None and not schema_profile.is_known:
             raise ValueError("unsupported investment schema profile")
         overrides = {}
-        if schema_profile is not None:
+        if (
+            schema_profile is not None
+            and schema_profile.transaction_number_of_shares_column is not None
+            and schema_profile.price_per_share_column is not None
+        ):
             overrides["number_of_shares"] = decimal_field(
                 schema_profile.transaction_number_of_shares_column
             )
@@ -284,7 +293,8 @@ class InvestmentSellTransaction(InvestmentTransaction):
         self.price_per_share = row.get("price_per_share")
 
         # Fixes
-        self.fee = max(self.fee, 0)
+        if self.fee < 0:
+            self.fee = Decimal(0)
 
     def validate(self) -> None:
         super().validate()

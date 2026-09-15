@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import logging
-from typing import Callable, Dict, Generic, TypeVar
+from typing import Callable, Dict, Generic, TypeVar, cast
 
 from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.record import Record
@@ -50,7 +50,7 @@ class RecordManager(ABC, Generic[T]):
         self, constructor: Callable, record, db_accessor: DatabaseAccessor
     ):
         """Construct a record; subclasses can supply schema-specific context."""
-        return constructor(mapped_row(record, constructor))
+        return constructor(mapped_row(record, cast(type, constructor)))
 
     def add(self, record: T) -> None:
         self._records[record.id] = record
