@@ -6,6 +6,11 @@ from typing import Any, Dict, List, Tuple
 
 from moneywiz_api.schema.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
+from moneywiz_api.model.investment_holding import InvestmentHolding
+from moneywiz_api.model.transaction import (
+    InvestmentBuyTransaction,
+    InvestmentSellTransaction,
+)
 from moneywiz_api.schema_profile import SchemaProfile, detect_schema_profile
 from moneywiz_api.types import ENT_ID, GID, ID
 from moneywiz_api.schema.schema_profile import SchemaProfile
