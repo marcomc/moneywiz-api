@@ -13,6 +13,7 @@ from moneywiz_api.model.schema_mapped_row import (
     nullable_decimal_field,
     schema_field,
 )
+from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
 
 ABS_TOLERANCE = Decimal("0.001")
@@ -196,8 +197,22 @@ class InvestmentBuyTransaction(InvestmentTransaction):
     number_of_shares: Decimal
     price_per_share: Decimal
 
-    def __init__(self, row):
-        row = mapped_row(row, self.__class__)
+    def __init__(self, row, schema_profile: SchemaProfile | None = None):
+        if schema_profile is not None and not schema_profile.is_known:
+            raise ValueError("unsupported investment schema profile")
+        overrides = {}
+        if (
+            schema_profile is not None
+            and schema_profile.transaction_number_of_shares_column is not None
+            and schema_profile.price_per_share_column is not None
+        ):
+            overrides["number_of_shares"] = decimal_field(
+                schema_profile.transaction_number_of_shares_column
+            )
+            overrides["price_per_share"] = decimal_field(
+                schema_profile.price_per_share_column
+            )
+        row = mapped_row(row, self.__class__, overrides)
         super().__init__(row)
         self.account = row.get("account")
         self.amount = row.get("amount")
@@ -209,7 +224,8 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         self.price_per_share = row.get("price_per_share")
 
         # Fixes
-        self.fee = max(self.fee, 0)
+        if self.fee < 0:
+            self.fee = Decimal(0)
 
     def validate(self) -> None:
         super().validate()
@@ -250,8 +266,22 @@ class InvestmentSellTransaction(InvestmentTransaction):
     number_of_shares: Decimal
     price_per_share: Decimal
 
-    def __init__(self, row):
-        row = mapped_row(row, self.__class__)
+    def __init__(self, row, schema_profile: SchemaProfile | None = None):
+        if schema_profile is not None and not schema_profile.is_known:
+            raise ValueError("unsupported investment schema profile")
+        overrides = {}
+        if (
+            schema_profile is not None
+            and schema_profile.transaction_number_of_shares_column is not None
+            and schema_profile.price_per_share_column is not None
+        ):
+            overrides["number_of_shares"] = decimal_field(
+                schema_profile.transaction_number_of_shares_column
+            )
+            overrides["price_per_share"] = decimal_field(
+                schema_profile.price_per_share_column
+            )
+        row = mapped_row(row, self.__class__, overrides)
         super().__init__(row)
         self.account = row.get("account")
         self.amount = row.get("amount")
@@ -263,7 +293,8 @@ class InvestmentSellTransaction(InvestmentTransaction):
         self.price_per_share = row.get("price_per_share")
 
         # Fixes
-        self.fee = max(self.fee, 0)
+        if self.fee < 0:
+            self.fee = Decimal(0)
 
     def validate(self) -> None:
         super().validate()
@@ -525,6 +556,15 @@ class TransferWithdrawTransaction(Transaction):
             self.recipient_amount = -self.original_amount * self.original_exchange_rate
         if self.recipient_amount is not None:
             self.recipient_amount = abs(self.recipient_amount)
+        if self.original_amount == 0 and self.recipient_amount not in (
+            None,
+            Decimal(0),
+        ):
+            if self.original_exchange_rate == 0:
+                raise ValueError(
+                    "cannot reconstruct a transfer amount with a zero exchange rate"
+                )
+            self.original_amount = self.amount
 
     def validate(self) -> None:
         super().validate()

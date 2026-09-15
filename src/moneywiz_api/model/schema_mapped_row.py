@@ -90,5 +90,10 @@ def is_one_field(*aliases: str) -> FieldSpec:
     return schema_field(*aliases, converter=lambda raw_value: raw_value == 1)
 
 
-def mapped_row(row: Any, model_cls: type) -> SchemaMappedRow:
-    return SchemaMappedRow.from_row(row, model_cls)
+def mapped_row(
+    row: Any, model_cls: type, field_overrides: Dict[str, FieldSpec] | None = None
+) -> SchemaMappedRow:
+    mapped = SchemaMappedRow.from_row(row, model_cls)
+    if field_overrides:
+        mapped.fields = {**mapped.fields, **field_overrides}
+    return mapped
