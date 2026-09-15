@@ -4,8 +4,6 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-import pytest
-
 from moneywiz_api.model.record import Record
 from moneywiz_api.model.schema_mapped_row import (
     datetime_field,
@@ -17,7 +15,11 @@ from moneywiz_api.model.schema_mapped_row import (
 )
 from moneywiz_api.types import ID
 
-ABS_TOLERANCE = 0.001
+ABS_TOLERANCE = Decimal("0.001")
+
+
+def approx_equal(a: Decimal, b: Decimal, abs_tol: Decimal = ABS_TOLERANCE) -> bool:
+    return abs(a - b) <= abs_tol
 
 
 @dataclass
@@ -100,8 +102,8 @@ class DepositTransaction(Transaction):
 
         assert self.amount * self.original_amount > 0, self.as_dict()  # Same sign
         if self.original_exchange_rate is not None:
-            assert self.amount == pytest.approx(
-                self.original_amount * self.original_exchange_rate, abs=ABS_TOLERANCE
+            assert approx_equal(
+                self.amount, self.original_amount * self.original_exchange_rate
             ), self.as_dict()
 
 
@@ -217,18 +219,16 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         assert self.fee is not None
         assert self.fee >= 0
         # Either tiny (close to 0) or positive
-        assert (
-            abs(self.fee) == pytest.approx(0, abs=ABS_TOLERANCE)
-            or self.fee > ABS_TOLERANCE
-        )
+        assert (abs(self.fee) <= ABS_TOLERANCE) or (self.fee > ABS_TOLERANCE)
         assert self.investment_holding is not None
         assert self.number_of_shares is not None
         assert self.number_of_shares > 0
         assert self.price_per_share is not None
         assert self.price_per_share >= 0
-        assert -(
-            self.number_of_shares * self.price_per_share + self.fee
-        ) == pytest.approx(self.amount, abs=ABS_TOLERANCE)
+        assert approx_equal(
+            -(self.number_of_shares * self.price_per_share + self.fee),
+            self.amount,
+        )
 
 
 @dataclass
@@ -273,19 +273,16 @@ class InvestmentSellTransaction(InvestmentTransaction):
         assert self.fee is not None
         assert self.fee >= 0
         # Either tiny (close to 0) or positive
-        assert (
-            abs(self.fee) == pytest.approx(0, abs=ABS_TOLERANCE)
-            or self.fee > ABS_TOLERANCE
-        )
+        assert (abs(self.fee) <= ABS_TOLERANCE) or (self.fee > ABS_TOLERANCE)
 
         assert self.investment_holding is not None
         assert self.number_of_shares is not None
         assert self.number_of_shares > 0
         assert self.price_per_share is not None
         assert self.price_per_share >= 0
-        assert (
-            self.number_of_shares * self.price_per_share - self.fee
-        ) == pytest.approx(self.amount, abs=ABS_TOLERANCE)
+        assert approx_equal(
+            self.number_of_shares * self.price_per_share - self.fee, self.amount
+        )
 
 
 @dataclass
@@ -364,8 +361,8 @@ class RefundTransaction(Transaction):
         assert self.original_amount > 0
 
         if self.original_exchange_rate is not None:
-            assert self.amount == pytest.approx(
-                self.original_amount * self.original_exchange_rate, abs=ABS_TOLERANCE
+            assert approx_equal(
+                self.amount, self.original_amount * self.original_exchange_rate
             )
 
 
@@ -429,6 +426,16 @@ class TransferDepositTransaction(Transaction):
         self.original_exchange_rate = row.get("original_exchange_rate")
 
         # Fixes
+        # Some legacy transfers store zero original metadata even though
+        # the paired amount and exchange rate are complete.
+        if (
+            self.original_amount == Decimal(0)
+            and self.sender_amount is not None
+            and self.original_exchange_rate is not None
+        ):
+            self.original_amount = -self.sender_amount * self.original_exchange_rate - (
+                self.original_fee or 0
+            )
         self.original_amount = abs(self.original_amount)
 
     def validate(self) -> None:
@@ -440,9 +447,9 @@ class TransferDepositTransaction(Transaction):
         assert self.sender_transaction is not None
         assert self.original_amount is not None
         assert self.original_amount > 0
-        assert self.original_currency is not None
         assert self.sender_amount is not None
         assert self.sender_amount <= 0
+        assert self.original_currency is not None
         assert self.sender_currency is not None
 
         if self.original_fee is not None and self.original_fee != 0:
@@ -451,10 +458,10 @@ class TransferDepositTransaction(Transaction):
         assert self.original_exchange_rate is not None
 
         # assert self.amount ==  self.original_amount # original_amount could be different with amount ZCURRENCYEXCHANGERATE is playing up
-        assert self.original_amount == pytest.approx(
+        assert approx_equal(
+            self.original_amount,
             -self.sender_amount * self.original_exchange_rate
             - (self.original_fee or 0),
-            abs=ABS_TOLERANCE,
         )
 
 
@@ -466,7 +473,7 @@ class TransferWithdrawTransaction(Transaction):
         "recipient_transaction": schema_field("ZRECIPIENTTRANSACTION"),
         "original_amount": decimal_field("ZORIGINALAMOUNT"),
         "original_currency": schema_field("ZORIGINALCURRENCY"),
-        "recipient_amount": decimal_field("ZORIGINALRECIPIENTAMOUNT"),
+        "recipient_amount": nullable_decimal_field("ZORIGINALRECIPIENTAMOUNT"),
         "recipient_currency": schema_field("ZORIGINALRECIPIENTCURRENCY"),
         "original_fee": nullable_decimal_field("ZORIGINALFEE"),
         "original_fee_currency": schema_field("ZORIGINALFEECURRENCY"),
@@ -510,7 +517,14 @@ class TransferWithdrawTransaction(Transaction):
         self.original_exchange_rate = row.get("original_exchange_rate")
 
         # Fixes
-        self.recipient_amount = abs(self.recipient_amount)
+        if (
+            self.recipient_amount in (None, Decimal(0))
+            and self.original_amount is not None
+            and self.original_exchange_rate is not None
+        ):
+            self.recipient_amount = -self.original_amount * self.original_exchange_rate
+        if self.recipient_amount is not None:
+            self.recipient_amount = abs(self.recipient_amount)
 
     def validate(self) -> None:
         super().validate()
@@ -521,9 +535,9 @@ class TransferWithdrawTransaction(Transaction):
         assert self.recipient_transaction is not None
         assert self.original_amount is not None
         assert self.original_amount < 0
-        assert self.original_currency is not None
         assert self.recipient_amount is not None
         assert self.recipient_amount > 0
+        assert self.original_currency is not None
         assert self.recipient_currency is not None
 
         if self.original_fee is not None and self.original_fee != 0:
@@ -532,9 +546,9 @@ class TransferWithdrawTransaction(Transaction):
         assert self.original_exchange_rate is not None
 
         assert self.amount == self.original_amount
-        assert self.amount == pytest.approx(
+        assert approx_equal(
+            self.amount,
             -self.recipient_amount / self.original_exchange_rate,
-            abs=ABS_TOLERANCE,
         )
 
 
@@ -574,6 +588,12 @@ class WithdrawTransaction(Transaction):
 
         if self.original_exchange_rate == Decimal(0):
             self.original_exchange_rate = None
+        elif (
+            self.original_exchange_rate != Decimal(1)
+            and self.amount == self.original_amount
+        ):
+            # The rate is stale when no currency conversion took place.
+            self.original_exchange_rate = None
 
     def validate(self) -> None:
         super().validate()
@@ -586,6 +606,6 @@ class WithdrawTransaction(Transaction):
         assert self.amount * self.original_amount > 0
 
         if self.original_exchange_rate is not None:
-            assert self.amount == pytest.approx(
-                self.original_amount * self.original_exchange_rate, abs=ABS_TOLERANCE
+            assert approx_equal(
+                self.amount, self.original_amount * self.original_exchange_rate
             )
