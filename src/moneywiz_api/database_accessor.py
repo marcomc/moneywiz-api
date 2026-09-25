@@ -81,9 +81,15 @@ class DatabaseAccessor:
         return res.fetchall()
 
     def _construct_record(self, row, constructor: Callable):
-        return constructor(
-            mapped_row(row, cast(type, constructor), schema_profile=self.schema_profile)
-        )
+        if isinstance(constructor, type) and issubclass(constructor, Record):
+            model_constructor = cast(Callable[..., Any], constructor)
+            return model_constructor(
+                mapped_row(
+                    row, cast(type, constructor), schema_profile=self.schema_profile
+                )
+            )
+        raw_constructor = cast(Callable[..., Any], constructor)
+        return raw_constructor(row)
 
     def get_record(self, pk_id: ID, constructor: Callable = Record):
         cur = self._con.cursor()
