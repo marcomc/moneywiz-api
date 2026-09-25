@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict
 
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
+from moneywiz_api.schema_profile import SchemaProfile
 
 Converter = Callable[[Any], Any]
 
@@ -11,12 +12,24 @@ Converter = Callable[[Any], Any]
 class FieldSpec:
     aliases: tuple[str, ...]
     converter: Converter | None = None
+    profile_column: str | None = None
 
 
 class SchemaMappedRow:
-    def __init__(self, raw_row: Dict[str, Any], model_cls: type):
+    def __init__(
+        self,
+        raw_row: Dict[str, Any],
+        model_cls: type,
+        schema_profile: SchemaProfile | None = None,
+    ):
         self.raw_row = raw_row
         self.fields = self._fields_for(model_cls)
+        self._field_overrides: Dict[str, FieldSpec] = {}
+        self.schema_profile = schema_profile
+        if schema_profile is not None and any(
+            field.profile_column is not None for field in self.fields.values()
+        ):
+            schema_profile.require_known()
 
     @classmethod
     def from_row(cls, row: Any, model_cls: type) -> "SchemaMappedRow":
@@ -26,7 +39,12 @@ class SchemaMappedRow:
 
     def get(self, field_name: str) -> Any:
         spec = self.fields[field_name]
-        for alias in spec.aliases:
+        aliases = spec.aliases
+        if self.schema_profile is not None and spec.profile_column is not None:
+            profile_alias = getattr(self.schema_profile, spec.profile_column)
+            if profile_alias is not None:
+                aliases = (profile_alias,)
+        for alias in aliases:
             if alias in self.raw_row:
                 raw_value = self.raw_row[alias]
                 if spec.converter is not None:
@@ -43,7 +61,7 @@ class SchemaMappedRow:
 
         raise KeyError(
             f"Could not resolve field {field_name}. "
-            f"Tried {list(spec.aliases)}. "
+            f"Tried {list(aliases)}. "
             f"Available columns: {list(self.raw_row.keys())}"
         )
 
@@ -65,8 +83,14 @@ class SchemaMappedRow:
 # fields
 
 
-def schema_field(*aliases: str, converter: Converter | None = None) -> FieldSpec:
-    return FieldSpec(aliases=aliases, converter=converter)
+def schema_field(
+    *aliases: str,
+    converter: Converter | None = None,
+    profile_column: str | None = None,
+) -> FieldSpec:
+    return FieldSpec(
+        aliases=aliases, converter=converter, profile_column=profile_column
+    )
 
 
 def datetime_field(*aliases: str, value_if_null: datetime | None = None) -> FieldSpec:
@@ -78,12 +102,18 @@ def datetime_field(*aliases: str, value_if_null: datetime | None = None) -> Fiel
     return schema_field(*aliases, converter=converter)
 
 
-def decimal_field(*aliases: str) -> FieldSpec:
-    return schema_field(*aliases, converter=RDH.get_decimal)
+def decimal_field(*aliases: str, profile_column: str | None = None) -> FieldSpec:
+    return schema_field(
+        *aliases, converter=RDH.get_decimal, profile_column=profile_column
+    )
 
 
-def nullable_decimal_field(*aliases: str) -> FieldSpec:
-    return schema_field(*aliases, converter=RDH.get_nullable_decimal)
+def nullable_decimal_field(
+    *aliases: str, profile_column: str | None = None
+) -> FieldSpec:
+    return schema_field(
+        *aliases, converter=RDH.get_nullable_decimal, profile_column=profile_column
+    )
 
 
 def is_one_field(*aliases: str) -> FieldSpec:
@@ -91,9 +121,21 @@ def is_one_field(*aliases: str) -> FieldSpec:
 
 
 def mapped_row(
-    row: Any, model_cls: type, field_overrides: Dict[str, FieldSpec] | None = None
+    row: Any,
+    model_cls: type,
+    field_overrides: Dict[str, FieldSpec] | None = None,
+    schema_profile: SchemaProfile | None = None,
 ) -> SchemaMappedRow:
-    mapped = SchemaMappedRow.from_row(row, model_cls)
+    if isinstance(row, SchemaMappedRow):
+        if schema_profile is None:
+            mapped = row
+        else:
+            mapped = SchemaMappedRow(row.raw_row, model_cls, schema_profile)
+            mapped.fields = {**mapped.fields, **row._field_overrides}
+            mapped._field_overrides = dict(row._field_overrides)
+    else:
+        mapped = SchemaMappedRow(row, model_cls, schema_profile)
     if field_overrides:
         mapped.fields = {**mapped.fields, **field_overrides}
+        mapped._field_overrides.update(field_overrides)
     return mapped

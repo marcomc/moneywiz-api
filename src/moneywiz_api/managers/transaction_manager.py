@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Callable, Dict, List, Tuple, Protocol, cast
+from typing import Dict, List, Tuple, Protocol, cast
 
 from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.managers.record_manager import RecordManager
@@ -46,17 +46,6 @@ class TransactionManager(RecordManager[Transaction]):
             "TransferWithdrawTransaction": TransferWithdrawTransaction,
             "WithdrawTransaction": WithdrawTransaction,
         }
-
-    def construct_record(
-        self, constructor: Callable, record, db_accessor: DatabaseAccessor
-    ):
-        investment_constructors = {
-            InvestmentBuyTransaction,
-            InvestmentSellTransaction,
-        }
-        if constructor in investment_constructors:
-            return constructor(record, schema_profile=db_accessor.schema_profile)
-        return super().construct_record(constructor, record, db_accessor)
 
     def load(self, db_accessor: DatabaseAccessor) -> None:
         super().load(db_accessor)

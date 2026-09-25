@@ -13,7 +13,6 @@ from moneywiz_api.model.schema_mapped_row import (
     nullable_decimal_field,
     schema_field,
 )
-from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
 
 ABS_TOLERANCE = Decimal("0.001")
@@ -184,8 +183,12 @@ class InvestmentBuyTransaction(InvestmentTransaction):
         "account": schema_field("ZACCOUNT2"),
         "fee": decimal_field("ZFEE2"),
         "investment_holding": schema_field("ZINVESTMENTHOLDING"),
-        "number_of_shares": decimal_field("ZNUMBEROFSHARES"),
-        "price_per_share": decimal_field("ZPRICEPERSHARE1"),
+        "number_of_shares": decimal_field(
+            "ZNUMBEROFSHARES", profile_column="transaction_number_of_shares_column"
+        ),
+        "price_per_share": decimal_field(
+            "ZPRICEPERSHARE1", profile_column="price_per_share_column"
+        ),
     }
 
     account: ID
@@ -197,22 +200,8 @@ class InvestmentBuyTransaction(InvestmentTransaction):
     number_of_shares: Decimal
     price_per_share: Decimal
 
-    def __init__(self, row, schema_profile: SchemaProfile | None = None):
-        if schema_profile is not None and not schema_profile.is_known:
-            raise ValueError("unsupported investment schema profile")
-        overrides = {}
-        if (
-            schema_profile is not None
-            and schema_profile.transaction_number_of_shares_column is not None
-            and schema_profile.price_per_share_column is not None
-        ):
-            overrides["number_of_shares"] = decimal_field(
-                schema_profile.transaction_number_of_shares_column
-            )
-            overrides["price_per_share"] = decimal_field(
-                schema_profile.price_per_share_column
-            )
-        row = mapped_row(row, self.__class__, overrides)
+    def __init__(self, row):
+        row = mapped_row(row, self.__class__)
         super().__init__(row)
         self.account = row.get("account")
         self.amount = row.get("amount")
@@ -253,8 +242,12 @@ class InvestmentSellTransaction(InvestmentTransaction):
         "account": schema_field("ZACCOUNT2"),
         "fee": decimal_field("ZFEE2"),
         "investment_holding": schema_field("ZINVESTMENTHOLDING"),
-        "number_of_shares": decimal_field("ZNUMBEROFSHARES"),
-        "price_per_share": decimal_field("ZPRICEPERSHARE1"),
+        "number_of_shares": decimal_field(
+            "ZNUMBEROFSHARES", profile_column="transaction_number_of_shares_column"
+        ),
+        "price_per_share": decimal_field(
+            "ZPRICEPERSHARE1", profile_column="price_per_share_column"
+        ),
     }
 
     account: ID
@@ -266,22 +259,8 @@ class InvestmentSellTransaction(InvestmentTransaction):
     number_of_shares: Decimal
     price_per_share: Decimal
 
-    def __init__(self, row, schema_profile: SchemaProfile | None = None):
-        if schema_profile is not None and not schema_profile.is_known:
-            raise ValueError("unsupported investment schema profile")
-        overrides = {}
-        if (
-            schema_profile is not None
-            and schema_profile.transaction_number_of_shares_column is not None
-            and schema_profile.price_per_share_column is not None
-        ):
-            overrides["number_of_shares"] = decimal_field(
-                schema_profile.transaction_number_of_shares_column
-            )
-            overrides["price_per_share"] = decimal_field(
-                schema_profile.price_per_share_column
-            )
-        row = mapped_row(row, self.__class__, overrides)
+    def __init__(self, row):
+        row = mapped_row(row, self.__class__)
         super().__init__(row)
         self.account = row.get("account")
         self.amount = row.get("amount")

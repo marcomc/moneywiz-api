@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Any, cast
 
 import pytest
 
@@ -77,15 +78,18 @@ class TransferWithdrawAccessor:
 def test_transfer_manager_skips_zero_rate_and_loads_later_valid_row() -> None:
     manager = TransferWithdrawManager()
     manager.load(
-        TransferWithdrawAccessor(
-            [
-                transfer_withdraw_row(),
-                transfer_withdraw_row(
-                    Z_PK=2,
-                    ZGID="valid-transfer-withdraw",
-                    ZORIGINALEXCHANGERATE=1.0,
-                ),
-            ]
+        cast(
+            Any,
+            TransferWithdrawAccessor(
+                [
+                    transfer_withdraw_row(),
+                    transfer_withdraw_row(
+                        Z_PK=2,
+                        ZGID="valid-transfer-withdraw",
+                        ZORIGINALEXCHANGERATE=1.0,
+                    ),
+                ]
+            ),
         )
     )
 

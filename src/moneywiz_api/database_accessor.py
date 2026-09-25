@@ -3,15 +3,11 @@ import sqlite3
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, cast
 
 from moneywiz_api.model.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
-from moneywiz_api.model.investment_holding import InvestmentHolding
-from moneywiz_api.model.transaction import (
-    InvestmentBuyTransaction,
-    InvestmentSellTransaction,
-)
+from moneywiz_api.model.schema_mapped_row import mapped_row
 from moneywiz_api.schema_profile import SchemaProfile, detect_schema_profile
 from moneywiz_api.types import ENT_ID, GID, ID
 
@@ -85,14 +81,9 @@ class DatabaseAccessor:
         return res.fetchall()
 
     def _construct_record(self, row, constructor: Callable):
-        investment_constructors = {
-            InvestmentBuyTransaction,
-            InvestmentSellTransaction,
-            InvestmentHolding,
-        }
-        if constructor in investment_constructors:
-            return constructor(row, schema_profile=self.schema_profile)
-        return constructor(row)
+        return constructor(
+            mapped_row(row, cast(type, constructor), schema_profile=self.schema_profile)
+        )
 
     def get_record(self, pk_id: ID, constructor: Callable = Record):
         cur = self._con.cursor()

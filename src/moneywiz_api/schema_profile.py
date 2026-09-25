@@ -6,6 +6,10 @@ import sqlite3
 from dataclasses import dataclass
 
 
+class UnsupportedInvestmentSchemaError(ValueError):
+    """Raised when investment column aliases cannot be mapped safely."""
+
+
 @dataclass(frozen=True)
 class SchemaProfile:
     """Capabilities inferred from the physical store schema."""
@@ -18,6 +22,13 @@ class SchemaProfile:
     @property
     def is_known(self) -> bool:
         return self.profile_id != "unknown"
+
+    def require_known(self) -> None:
+        """Raise when this profile cannot safely parse investment records."""
+        if not self.is_known:
+            raise UnsupportedInvestmentSchemaError(
+                "unsupported investment schema profile"
+            )
 
 
 def detect_schema_profile(connection: sqlite3.Connection) -> SchemaProfile:

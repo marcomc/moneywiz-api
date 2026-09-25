@@ -10,7 +10,6 @@ from moneywiz_api.model.schema_mapped_row import (
     nullable_decimal_field,
     schema_field,
 )
-from moneywiz_api.schema_profile import SchemaProfile
 from moneywiz_api.types import ID
 
 
@@ -19,7 +18,9 @@ class InvestmentHolding(Record):
     FIELDS = {
         "account": schema_field("ZINVESTMENTACCOUNT"),
         "opening_number_of_shares": nullable_decimal_field("ZOPENNINGNUMBEROFSHARES"),
-        "number_of_shares": nullable_decimal_field("ZNUMBEROFSHARES"),
+        "number_of_shares": nullable_decimal_field(
+            "ZNUMBEROFSHARES", profile_column="holding_number_of_shares_column"
+        ),
         "symbol": schema_field("ZSYMBOL"),
         "holding_type": schema_field("ZHOLDINGTYPE"),
         "description": schema_field("ZDESC"),
@@ -58,18 +59,8 @@ class InvestmentHolding(Record):
     """
     _cost_basis_of_missing_ob_shares: Decimal = field(repr=False)
 
-    def __init__(self, row, schema_profile: SchemaProfile | None = None):
-        if schema_profile is not None and not schema_profile.is_known:
-            raise ValueError("unsupported investment schema profile")
-        overrides = {}
-        if (
-            schema_profile is not None
-            and schema_profile.holding_number_of_shares_column is not None
-        ):
-            overrides["number_of_shares"] = nullable_decimal_field(
-                schema_profile.holding_number_of_shares_column
-            )
-        row = mapped_row(row, self.__class__, overrides)
+    def __init__(self, row):
+        row = mapped_row(row, self.__class__)
         super().__init__(row)
         self.account = row.get("account")
         self.opening_number_of_shares = row.get("opening_number_of_shares")

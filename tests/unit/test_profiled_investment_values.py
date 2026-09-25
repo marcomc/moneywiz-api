@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Any, cast
 
 import pytest
 
@@ -6,11 +7,15 @@ from moneywiz_api.managers.investment_holding_manager import InvestmentHoldingMa
 from moneywiz_api.managers.transaction_manager import TransactionManager
 from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.investment_holding import InvestmentHolding
+from moneywiz_api.model.schema_mapped_row import mapped_row
 from moneywiz_api.model.transaction import (
     InvestmentBuyTransaction,
     InvestmentSellTransaction,
 )
-from moneywiz_api.schema_profile import SchemaProfile
+from moneywiz_api.schema_profile import (
+    SchemaProfile,
+    UnsupportedInvestmentSchemaError,
+)
 
 
 UNSUFFIXED_PROFILE = SchemaProfile(
@@ -76,14 +81,22 @@ def investment_holding_row() -> dict:
     ],
 )
 def test_transactions_use_selected_profile_alias(constructor, row) -> None:
-    transaction = constructor(row, schema_profile=UNSUFFIXED_PROFILE)
+    transaction = constructor(
+        mapped_row(row, constructor, schema_profile=UNSUFFIXED_PROFILE)
+    )
 
     assert transaction.number_of_shares == Decimal("2.0")
     assert transaction.price_per_share == Decimal("10.0")
 
 
 def test_holding_uses_selected_profile_alias() -> None:
-    holding = InvestmentHolding(investment_holding_row(), UNSUFFIXED_PROFILE)
+    holding = InvestmentHolding(
+        mapped_row(
+            investment_holding_row(),
+            InvestmentHolding,
+            schema_profile=UNSUFFIXED_PROFILE,
+        )
+    )
 
     assert holding.number_of_shares == Decimal("2.0")
 
@@ -100,8 +113,12 @@ def test_mixed_profile_uses_consumer_specific_share_aliases(
 ) -> None:
     holding_row = investment_holding_row()
 
-    transaction = constructor(transaction_row, MIXED_PROFILE)
-    holding = InvestmentHolding(holding_row, MIXED_PROFILE)
+    transaction = constructor(
+        mapped_row(transaction_row, constructor, schema_profile=MIXED_PROFILE)
+    )
+    holding = InvestmentHolding(
+        mapped_row(holding_row, InvestmentHolding, schema_profile=MIXED_PROFILE)
+    )
 
     assert transaction.number_of_shares == Decimal("9.0")
     assert transaction.price_per_share == Decimal("1.0")
@@ -115,10 +132,14 @@ class ProfileAccessor:
 def test_managers_pass_profile_to_investment_constructors() -> None:
     accessor = ProfileAccessor()
     transaction = TransactionManager().construct_record(
-        InvestmentBuyTransaction, investment_transaction_row(40, -20.0), accessor
+        InvestmentBuyTransaction,
+        investment_transaction_row(40, -20.0),
+        cast(DatabaseAccessor, accessor),
     )
     holding = InvestmentHoldingManager().construct_record(
-        InvestmentHolding, investment_holding_row(), accessor
+        InvestmentHolding,
+        investment_holding_row(),
+        cast(DatabaseAccessor, accessor),
     )
 
     assert transaction.price_per_share == Decimal("10.0")
@@ -126,9 +147,15 @@ def test_managers_pass_profile_to_investment_constructors() -> None:
 
 
 class ManagerAccessor(ProfileAccessor):
-    def __init__(self, typename: str, row: dict):
+    def __init__(
+        self,
+        typename: str,
+        row: dict,
+        schema_profile: SchemaProfile = UNSUFFIXED_PROFILE,
+    ):
         self.typename = typename
         self.row = row
+        self.schema_profile = schema_profile
 
     def query_objects(self, _typenames):
         return [self.row]
@@ -149,15 +176,27 @@ class ManagerAccessor(ProfileAccessor):
 def test_managers_load_profiled_investment_records() -> None:
     transaction_manager = TransactionManager()
     transaction_manager.load(
-        ManagerAccessor(
-            "InvestmentBuyTransaction", investment_transaction_row(40, -20.0)
+        cast(
+            DatabaseAccessor,
+            ManagerAccessor(
+                "InvestmentBuyTransaction", investment_transaction_row(40, -20.0)
+            ),
         )
     )
     holding_manager = InvestmentHoldingManager()
-    holding_manager.load(ManagerAccessor("InvestmentHolding", investment_holding_row()))
+    holding_manager.load(
+        cast(
+            DatabaseAccessor,
+            ManagerAccessor("InvestmentHolding", investment_holding_row()),
+        )
+    )
 
-    assert transaction_manager.get(40).price_per_share == Decimal("10.0")
-    assert holding_manager.get(24).number_of_shares == Decimal("2.0")
+    transaction = transaction_manager.get(40)
+    holding = holding_manager.get(24)
+    assert isinstance(transaction, InvestmentBuyTransaction)
+    assert holding is not None
+    assert transaction.price_per_share == Decimal("10.0")
+    assert holding.number_of_shares == Decimal("2.0")
 
 
 class StaticCursor:
@@ -181,10 +220,12 @@ class StaticConnection:
 
 def test_accessor_public_constructors_receive_schema_profile() -> None:
     transaction_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    transaction_accessor._con = StaticConnection(investment_transaction_row(40, -20.0))
+    transaction_accessor._con = cast(
+        Any, StaticConnection(investment_transaction_row(40, -20.0))
+    )
     transaction_accessor._schema_profile = UNSUFFIXED_PROFILE
     holding_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    holding_accessor._con = StaticConnection(investment_holding_row())
+    holding_accessor._con = cast(Any, StaticConnection(investment_holding_row()))
     holding_accessor._schema_profile = UNSUFFIXED_PROFILE
 
     transaction = transaction_accessor.get_record(40, InvestmentBuyTransaction)
@@ -203,5 +244,31 @@ def test_accessor_public_constructors_receive_schema_profile() -> None:
     ],
 )
 def test_investment_models_reject_ambiguous_profile(constructor, row) -> None:
-    with pytest.raises(ValueError, match="unsupported investment schema profile"):
-        constructor(row, UNKNOWN_PROFILE)
+    with pytest.raises(
+        UnsupportedInvestmentSchemaError,
+        match="unsupported investment schema profile",
+    ):
+        constructor(mapped_row(row, constructor, schema_profile=UNKNOWN_PROFILE))
+
+
+@pytest.mark.parametrize(
+    ("manager", "typename", "row"),
+    [
+        (
+            TransactionManager(),
+            "InvestmentBuyTransaction",
+            investment_transaction_row(40, -20.0),
+        ),
+        (InvestmentHoldingManager(), "InvestmentHolding", investment_holding_row()),
+    ],
+)
+def test_managers_propagate_unsupported_investment_schema_errors(
+    manager, typename, row
+) -> None:
+    with pytest.raises(
+        UnsupportedInvestmentSchemaError,
+        match="unsupported investment schema profile",
+    ):
+        manager.load(
+            cast(DatabaseAccessor, ManagerAccessor(typename, row, UNKNOWN_PROFILE))
+        )

@@ -5,6 +5,7 @@ from typing import Callable, Dict, Generic, TypeVar, cast
 from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.record import Record
 from moneywiz_api.model.schema_mapped_row import mapped_row
+from moneywiz_api.schema_profile import UnsupportedInvestmentSchemaError
 from moneywiz_api.types import GID, ID
 
 T = TypeVar("T", bound=Record)
@@ -33,6 +34,8 @@ class RecordManager(ABC, Generic[T]):
                         self.ents[typename], record, db_accessor
                     )
                     obj.validate()
+                except UnsupportedInvestmentSchemaError:
+                    raise
                 except (AssertionError, KeyError, ValueError) as exc:
                     record_id = record.get("Z_PK")
                     detail = type(exc).__name__
@@ -50,7 +53,13 @@ class RecordManager(ABC, Generic[T]):
         self, constructor: Callable, record, db_accessor: DatabaseAccessor
     ):
         """Construct a record; subclasses can supply schema-specific context."""
-        return constructor(mapped_row(record, cast(type, constructor)))
+        return constructor(
+            mapped_row(
+                record,
+                cast(type, constructor),
+                schema_profile=getattr(db_accessor, "schema_profile", None),
+            )
+        )
 
     def add(self, record: T) -> None:
         self._records[record.id] = record
