@@ -24,9 +24,9 @@ class SchemaProfile:
     def is_known(self) -> bool:
         return self.profile_id != "unknown"
 
-    def require_known(self) -> None:
-        """Raise when this profile cannot safely parse investment records."""
-        if not self.is_known:
+    def require_columns(self, *columns: str) -> None:
+        """Raise when this model's profile-selected columns are unresolved."""
+        if any(getattr(self, column) is None for column in columns):
             raise UnsupportedInvestmentSchemaError(
                 "unsupported investment schema profile"
             )
@@ -120,12 +120,15 @@ def detect_schema_profile(connection: sqlite3.Connection) -> SchemaProfile:
 
     if not holding_shares or not transaction_shares or not price_per_share:
         profile_id = "unknown"
-    elif len(
-        {
-            column.endswith("1")
-            for column in (holding_shares, transaction_shares, price_per_share)
-        }
-    ) > 1:
+    elif (
+        len(
+            {
+                column.endswith("1")
+                for column in (holding_shares, transaction_shares, price_per_share)
+            }
+        )
+        > 1
+    ):
         profile_id = "mixed-investment-columns"
     elif holding_shares.endswith("1"):
         profile_id = "suffixed-investment-columns"

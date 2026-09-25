@@ -37,6 +37,7 @@ OBSERVED_STORE_PROFILE = SchemaProfile(
     price_per_share_column="ZPRICEPERSHARE1",
 )
 UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None)
+HOLDING_ONLY_PROFILE = SchemaProfile("unknown", "ZNUMBEROFSHARES", None, None)
 
 
 def investment_transaction_row(ent: int, amount: float) -> dict:
@@ -273,6 +274,36 @@ def test_investment_models_reject_ambiguous_profile(constructor, row) -> None:
         match="unsupported investment schema profile",
     ):
         constructor(mapped_row(row, constructor, schema_profile=UNKNOWN_PROFILE))
+
+
+def test_holding_load_works_when_transaction_profile_is_unresolved() -> None:
+    manager = InvestmentHoldingManager()
+    manager.load(
+        cast(
+            DatabaseAccessor,
+            ManagerAccessor(
+                "InvestmentHolding", investment_holding_row(), HOLDING_ONLY_PROFILE
+            ),
+        )
+    )
+
+    holding = manager.get(24)
+    assert holding is not None
+    assert holding.number_of_shares == Decimal("2.0")
+
+
+def test_transaction_load_rejects_its_unresolved_profile_columns() -> None:
+    with pytest.raises(
+        UnsupportedInvestmentSchemaError,
+        match="unsupported investment schema profile",
+    ):
+        InvestmentBuyTransaction(
+            mapped_row(
+                investment_transaction_row(40, -20.0),
+                InvestmentBuyTransaction,
+                schema_profile=HOLDING_ONLY_PROFILE,
+            )
+        )
 
 
 @pytest.mark.parametrize(

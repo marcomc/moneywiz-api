@@ -26,10 +26,13 @@ class SchemaMappedRow:
         self.fields = self._fields_for(model_cls)
         self._field_overrides: Dict[str, FieldSpec] = {}
         self.schema_profile = schema_profile
-        if schema_profile is not None and any(
-            field.profile_column is not None for field in self.fields.values()
-        ):
-            schema_profile.require_known()
+        profile_columns = {
+            field.profile_column
+            for field in self.fields.values()
+            if field.profile_column is not None
+        }
+        if schema_profile is not None and profile_columns:
+            schema_profile.require_columns(*sorted(profile_columns))
 
     @classmethod
     def from_row(cls, row: Any, model_cls: type) -> "SchemaMappedRow":
