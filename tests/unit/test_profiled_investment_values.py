@@ -30,6 +30,12 @@ MIXED_PROFILE = SchemaProfile(
     transaction_number_of_shares_column="ZNUMBEROFSHARES1",
     price_per_share_column="ZPRICEPERSHARE1",
 )
+OBSERVED_STORE_PROFILE = SchemaProfile(
+    profile_id="mixed-investment-columns",
+    holding_number_of_shares_column="ZNUMBEROFSHARES",
+    transaction_number_of_shares_column="ZNUMBEROFSHARES",
+    price_per_share_column="ZPRICEPERSHARE1",
+)
 UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None)
 
 
@@ -123,6 +129,24 @@ def test_mixed_profile_uses_consumer_specific_share_aliases(
     assert transaction.number_of_shares == Decimal("9.0")
     assert transaction.price_per_share == Decimal("1.0")
     assert holding.number_of_shares == Decimal("2.0")
+
+
+@pytest.mark.parametrize(
+    ("constructor", "row"),
+    [
+        (InvestmentBuyTransaction, investment_transaction_row(40, -20.0)),
+        (InvestmentSellTransaction, investment_transaction_row(41, 20.0)),
+    ],
+)
+def test_observed_store_profile_uses_suffixed_transaction_price(
+    constructor, row
+) -> None:
+    transaction = constructor(
+        mapped_row(row, constructor, schema_profile=OBSERVED_STORE_PROFILE)
+    )
+
+    assert transaction.number_of_shares == Decimal("2.0")
+    assert transaction.price_per_share == Decimal("1.0")
 
 
 class ProfileAccessor:
