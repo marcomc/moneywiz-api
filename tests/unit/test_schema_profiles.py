@@ -32,7 +32,7 @@ def insert_investment_row(
     placeholders = ", ".join("?" for _ in columns)
     quoted_columns = ", ".join(f'"{column}"' for column in columns)
     connection.execute(
-        f'INSERT INTO ZSYNCOBJECT ({quoted_columns}) VALUES ({placeholders})',
+        f"INSERT INTO ZSYNCOBJECT ({quoted_columns}) VALUES ({placeholders})",
         [entity, *values.values()],
     )
 
@@ -75,15 +75,9 @@ def test_detects_consumer_specific_mixed_share_columns() -> None:
         "ZNUMBEROFSHARES", "ZNUMBEROFSHARES1", "ZPRICEPERSHARE1"
     )
     add_investment_entities(connection)
-    insert_investment_row(
-        connection, 24, ZNUMBEROFSHARES=2.0, ZNUMBEROFSHARES1=None
-    )
-    insert_investment_row(
-        connection, 40, ZNUMBEROFSHARES=None, ZNUMBEROFSHARES1=9.0
-    )
-    insert_investment_row(
-        connection, 41, ZNUMBEROFSHARES=None, ZNUMBEROFSHARES1=3.0
-    )
+    insert_investment_row(connection, 24, ZNUMBEROFSHARES=2.0, ZNUMBEROFSHARES1=None)
+    insert_investment_row(connection, 40, ZNUMBEROFSHARES=None, ZNUMBEROFSHARES1=9.0)
+    insert_investment_row(connection, 41, ZNUMBEROFSHARES=None, ZNUMBEROFSHARES1=3.0)
 
     profile = detect_schema_profile(connection)
 
@@ -94,9 +88,7 @@ def test_detects_consumer_specific_mixed_share_columns() -> None:
 
 
 def test_detects_observed_store_profile_from_entity_rows() -> None:
-    connection = make_connection(
-        "ZNUMBEROFSHARES", "ZPRICEPERSHARE", "ZPRICEPERSHARE1"
-    )
+    connection = make_connection("ZNUMBEROFSHARES", "ZPRICEPERSHARE", "ZPRICEPERSHARE1")
     add_investment_entities(connection)
     insert_investment_row(
         connection,
@@ -129,9 +121,7 @@ def test_detects_observed_store_profile_from_entity_rows() -> None:
 
 
 def test_rejects_dual_price_columns_without_discriminating_rows() -> None:
-    connection = make_connection(
-        "ZNUMBEROFSHARES", "ZPRICEPERSHARE", "ZPRICEPERSHARE1"
-    )
+    connection = make_connection("ZNUMBEROFSHARES", "ZPRICEPERSHARE", "ZPRICEPERSHARE1")
     add_investment_entities(connection)
     insert_investment_row(
         connection, 40, ZNUMBEROFSHARES=2.0, ZPRICEPERSHARE=10.0, ZPRICEPERSHARE1=1.0
