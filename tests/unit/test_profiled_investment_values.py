@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from decimal import Decimal
 from typing import Any, cast
 
@@ -12,6 +13,7 @@ from moneywiz_api.model.transaction import (
     InvestmentBuyTransaction,
     InvestmentSellTransaction,
 )
+from moneywiz_api.read_result import RelationshipLoadReport, RelationshipStorage
 from moneywiz_api.schema_profile import (
     SchemaProfile,
     UnsupportedInvestmentSchemaError,
@@ -108,6 +110,18 @@ def test_holding_uses_selected_profile_alias() -> None:
     assert holding.number_of_shares == Decimal("2.0")
 
 
+@pytest.mark.parametrize(("raw_quantity", "rendered"), [(0.0, "0.0"), (None, "0")])
+def test_holding_zero_quantity_fallback_preserves_scale(raw_quantity, rendered) -> None:
+    row = investment_holding_row()
+    row["ZNUMBEROFSHARES"] = raw_quantity
+
+    holding = InvestmentHolding(
+        mapped_row(row, InvestmentHolding, schema_profile=UNSUFFIXED_PROFILE)
+    )
+
+    assert str(holding.number_of_shares) == rendered
+
+
 @pytest.mark.parametrize(
     ("constructor", "transaction_row"),
     [
@@ -142,6 +156,7 @@ def test_mixed_profile_uses_consumer_specific_share_aliases(
 def test_observed_store_profile_uses_suffixed_transaction_price(
     constructor, row
 ) -> None:
+    row = {**row, "ZAMOUNT1": -2.0 if constructor is InvestmentBuyTransaction else 2.0}
     transaction = constructor(
         mapped_row(row, constructor, schema_profile=OBSERVED_STORE_PROFILE)
     )
@@ -182,20 +197,21 @@ class ManagerAccessor(ProfileAccessor):
         self.row = row
         self.schema_profile = schema_profile
 
+    @contextmanager
+    def read_transaction(self):
+        yield
+
+    def read_category_assignments(self):
+        return {}, RelationshipLoadReport(storage=RelationshipStorage.ABSENT)
+
+    read_refund_maps = read_category_assignments
+    read_tags_map = read_category_assignments
+
     def query_objects(self, _typenames):
         return [self.row]
 
     def typename_for(self, _ent_id):
         return self.typename
-
-    def get_category_assignment(self):
-        return {}
-
-    def get_refund_maps(self):
-        return {}
-
-    def get_tags_map(self):
-        return {}
 
 
 def test_managers_load_profiled_investment_records() -> None:
@@ -243,7 +259,12 @@ class StaticConnection:
         return StaticCursor(self.row)
 
 
-def test_accessor_public_constructors_receive_schema_profile() -> None:
+def test_accessor_public_constructors_receive_schema_profile(monkeypatch) -> None:
+    @contextmanager
+    def static_read_transaction(_accessor):
+        yield
+
+    monkeypatch.setattr(DatabaseAccessor, "read_transaction", static_read_transaction)
     transaction_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
     transaction_accessor._con = cast(
         Any, StaticConnection(investment_transaction_row(40, -20.0))
