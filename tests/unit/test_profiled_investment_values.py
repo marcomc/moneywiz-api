@@ -1,42 +1,51 @@
+import sqlite3
 from decimal import Decimal
-from typing import Any, cast
+from typing import cast
+from unittest.mock import Mock, patch
 
 import pytest
 
+from moneywiz_api import (
+    DEFAULT_SCHEMA_PROFILE,
+    MoneywizApi,
+    SchemaProfile,
+    SchemaProfileResolver,
+)
+from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.managers.investment_holding_manager import InvestmentHoldingManager
 from moneywiz_api.managers.transaction_manager import TransactionManager
-from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.investment_holding import InvestmentHolding
-from moneywiz_api.model.schema_mapped_row import mapped_row
 from moneywiz_api.model.transaction import (
     InvestmentBuyTransaction,
     InvestmentSellTransaction,
 )
-from moneywiz_api.schema_profile import (
-    SchemaProfile,
-    UnsupportedInvestmentSchemaError,
+from moneywiz_api.schema.schema_fields import (
+    decimal_field,
+    nullable_decimal_field,
+    schema_field,
 )
+from moneywiz_api.schema.schema_profile_resolver import UnsupportedInvestmentSchemaError
 
 
-UNSUFFIXED_PROFILE = SchemaProfile(
-    profile_id="unsuffixed-investment-columns",
-    holding_number_of_shares_column="ZNUMBEROFSHARES",
-    transaction_number_of_shares_column="ZNUMBEROFSHARES",
-    price_per_share_column="ZPRICEPERSHARE",
+def investment_profile(holding_shares, transaction_shares, price):
+    definitions = {
+        name: dict(fields) for name, fields in DEFAULT_SCHEMA_PROFILE.column_map.items()
+    }
+    definitions["InvestmentHolding"]["number_of_shares"] = nullable_decimal_field(
+        holding_shares
+    )
+    for model in ("InvestmentBuyTransaction", "InvestmentSellTransaction"):
+        definitions[model]["number_of_shares"] = decimal_field(transaction_shares)
+        definitions[model]["price_per_share"] = decimal_field(price)
+    return SchemaProfile(definitions)
+
+
+UNSUFFIXED_PROFILE = investment_profile(
+    "ZNUMBEROFSHARES", "ZNUMBEROFSHARES", "ZPRICEPERSHARE"
 )
-MIXED_PROFILE = SchemaProfile(
-    profile_id="mixed-investment-columns",
-    holding_number_of_shares_column="ZNUMBEROFSHARES",
-    transaction_number_of_shares_column="ZNUMBEROFSHARES1",
-    price_per_share_column="ZPRICEPERSHARE1",
+MIXED_PROFILE = investment_profile(
+    "ZNUMBEROFSHARES", "ZNUMBEROFSHARES1", "ZPRICEPERSHARE1"
 )
-OBSERVED_STORE_PROFILE = SchemaProfile(
-    profile_id="mixed-investment-columns",
-    holding_number_of_shares_column="ZNUMBEROFSHARES",
-    transaction_number_of_shares_column="ZNUMBEROFSHARES",
-    price_per_share_column="ZPRICEPERSHARE1",
-)
-UNKNOWN_PROFILE = SchemaProfile("unknown", None, None, None)
 
 
 def investment_transaction_row(ent: int, amount: float) -> dict:
@@ -52,7 +61,7 @@ def investment_transaction_row(ent: int, amount: float) -> dict:
         "ZNOTES1": None,
         "ZACCOUNT2": 1,
         "ZFEE2": 0.0,
-        "ZINVESTMENTHOLDING": 2,
+        "ZINVESTMENTHOLDING": 24,
         "ZNUMBEROFSHARES": 2.0,
         "ZNUMBEROFSHARES1": 9.0,
         "ZPRICEPERSHARE": 10.0,
@@ -74,8 +83,6 @@ def investment_holding_row() -> dict:
         "ZHOLDINGTYPE": None,
         "ZDESC": "Acme Corp.",
         "ZISPRICEPERSHAREAVAILABLEONLINE": 0,
-        "ZINVESTMENTOBJECTTYPE": 0,
-        "ZCOSTBASISOFMISSINGOBSHARES": 0.0,
     }
 
 
@@ -87,44 +94,30 @@ def investment_holding_row() -> dict:
     ],
 )
 def test_transactions_use_selected_profile_alias(constructor, row) -> None:
-    transaction = constructor(
-        mapped_row(row, constructor, schema_profile=UNSUFFIXED_PROFILE)
-    )
+    transaction = UNSUFFIXED_PROFILE.create_record(row, constructor)
 
     assert transaction.number_of_shares == Decimal("2.0")
     assert transaction.price_per_share == Decimal("10.0")
 
 
 def test_holding_uses_selected_profile_alias() -> None:
-    holding = InvestmentHolding(
-        mapped_row(
-            investment_holding_row(),
-            InvestmentHolding,
-            schema_profile=UNSUFFIXED_PROFILE,
-        )
+    holding = UNSUFFIXED_PROFILE.create_record(
+        investment_holding_row(), InvestmentHolding
     )
 
     assert holding.number_of_shares == Decimal("2.0")
 
 
 @pytest.mark.parametrize(
-    ("constructor", "transaction_row"),
+    ("constructor", "row"),
     [
         (InvestmentBuyTransaction, investment_transaction_row(40, -9.0)),
         (InvestmentSellTransaction, investment_transaction_row(41, 9.0)),
     ],
 )
-def test_mixed_profile_uses_consumer_specific_share_aliases(
-    constructor, transaction_row
-) -> None:
-    holding_row = investment_holding_row()
-
-    transaction = constructor(
-        mapped_row(transaction_row, constructor, schema_profile=MIXED_PROFILE)
-    )
-    holding = InvestmentHolding(
-        mapped_row(holding_row, InvestmentHolding, schema_profile=MIXED_PROFILE)
-    )
+def test_mixed_profile_uses_consumer_specific_share_aliases(constructor, row) -> None:
+    transaction = MIXED_PROFILE.create_record(row, constructor)
+    holding = MIXED_PROFILE.create_record(investment_holding_row(), InvestmentHolding)
 
     assert transaction.number_of_shares == Decimal("9.0")
     assert transaction.price_per_share == Decimal("1.0")
@@ -141,48 +134,108 @@ def test_mixed_profile_uses_consumer_specific_share_aliases(
 def test_observed_store_profile_uses_suffixed_transaction_price(
     constructor, row
 ) -> None:
-    transaction = constructor(
-        mapped_row(row, constructor, schema_profile=OBSERVED_STORE_PROFILE)
-    )
+    transaction = DEFAULT_SCHEMA_PROFILE.create_record(row, constructor)
 
     assert transaction.number_of_shares == Decimal("2.0")
     assert transaction.price_per_share == Decimal("1.0")
 
 
-class ProfileAccessor:
+def create_investment_database(db_path, rows):
+    columns = sorted({column for row in rows for column in row})
+    column_sql = ", ".join(f'"{column}"' for column in columns)
+    placeholders = ", ".join("?" for _ in columns)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(f"CREATE TABLE ZSYNCOBJECT ({column_sql})")
+        connection.executemany(
+            f"INSERT INTO ZSYNCOBJECT VALUES ({placeholders})",
+            [[row.get(column) for column in columns] for row in rows],
+        )
+        connection.execute("CREATE TABLE Z_PRIMARYKEY (Z_ENT INTEGER, Z_NAME TEXT)")
+        connection.executemany(
+            "INSERT INTO Z_PRIMARYKEY VALUES (?, ?)",
+            [
+                (24, "InvestmentHolding"),
+                (40, "InvestmentBuyTransaction"),
+                (41, "InvestmentSellTransaction"),
+            ]
+            + [
+                (100 + index, name)
+                for index, name in enumerate(TransactionManager().ents)
+                if name not in {"InvestmentBuyTransaction", "InvestmentSellTransaction"}
+            ],
+        )
+        connection.execute(
+            "CREATE TABLE Z_37TAGS (Z_3TRANSACTIONS INTEGER, Z_4TAGS INTEGER)"
+        )
+    connection.close()
+
+
+@pytest.mark.parametrize(
+    ("holding_shares", "transaction_shares", "price"),
+    [
+        ("ZNUMBEROFSHARES", "ZNUMBEROFSHARES", "ZPRICEPERSHARE"),
+        ("ZNUMBEROFSHARES", "ZNUMBEROFSHARES1", "ZPRICEPERSHARE1"),
+        ("ZNUMBEROFSHARES", "ZNUMBEROFSHARES", "ZPRICEPERSHARE1"),
+        ("ZNUMBEROFSHARES1", "ZNUMBEROFSHARES1", "ZPRICEPERSHARE1"),
+    ],
+)
+def test_managers_and_direct_reads_use_same_resolved_profile(
+    tmp_path, holding_shares, transaction_shares, price
+) -> None:
+    rows = [
+        investment_holding_row(),
+        investment_transaction_row(40, -20.0),
+        investment_transaction_row(41, 20.0),
+    ]
+    for row in rows:
+        for column in (
+            "ZNUMBEROFSHARES",
+            "ZNUMBEROFSHARES1",
+            "ZPRICEPERSHARE",
+            "ZPRICEPERSHARE1",
+        ):
+            row[column] = None
+        row[holding_shares if row["Z_ENT"] == 24 else transaction_shares] = 2.0
+        if row["Z_ENT"] != 24:
+            row[price] = 10.0
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, rows)
+    profile = SchemaProfileResolver(db_path).resolve()
+    accessor = DatabaseAccessor(db_path, profile)
+    try:
+        transaction_manager = TransactionManager()
+        transaction_manager.load(accessor)
+        holding_manager = InvestmentHoldingManager()
+        holding_manager.load(accessor)
+
+        for pk, constructor in (
+            (40, InvestmentBuyTransaction),
+            (41, InvestmentSellTransaction),
+        ):
+            loaded = transaction_manager.get(pk)
+            direct = accessor.get_record(pk, constructor)
+            by_gid = accessor.get_record_by_gid(f"investment-{pk}", constructor)
+            assert loaded == direct == by_gid
+            assert direct.number_of_shares == Decimal("2.0")
+            assert direct.price_per_share == Decimal("10.0")
+        holding = accessor.get_record(24, InvestmentHolding)
+        assert holding_manager.get(24) == holding
+        assert holding.number_of_shares == Decimal("2.0")
+        assert accessor.schema_profile is profile
+        assert transaction_manager.load_errors == holding_manager.load_errors == []
+    finally:
+        accessor._con.close()
+
+
+class ManagerAccessor:
     schema_profile = UNSUFFIXED_PROFILE
 
-
-def test_managers_pass_profile_to_investment_constructors() -> None:
-    accessor = ProfileAccessor()
-    transaction = TransactionManager().construct_record(
-        InvestmentBuyTransaction,
-        investment_transaction_row(40, -20.0),
-        cast(DatabaseAccessor, accessor),
-    )
-    holding = InvestmentHoldingManager().construct_record(
-        InvestmentHolding,
-        investment_holding_row(),
-        cast(DatabaseAccessor, accessor),
-    )
-
-    assert transaction.price_per_share == Decimal("10.0")
-    assert holding.number_of_shares == Decimal("2.0")
-
-
-class ManagerAccessor(ProfileAccessor):
-    def __init__(
-        self,
-        typename: str,
-        row: dict,
-        schema_profile: SchemaProfile = UNSUFFIXED_PROFILE,
-    ):
+    def __init__(self, typename, rows):
         self.typename = typename
-        self.row = row
-        self.schema_profile = schema_profile
+        self.rows = rows
 
     def query_objects(self, _typenames):
-        return [self.row]
+        return self.rows
 
     def typename_for(self, _ent_id):
         return self.typename
@@ -197,102 +250,219 @@ class ManagerAccessor(ProfileAccessor):
         return {}
 
 
-def test_managers_load_profiled_investment_records() -> None:
-    transaction_manager = TransactionManager()
-    transaction_manager.load(
+@pytest.mark.parametrize("malformation", ["invalid", "null", "missing", "identity"])
+def test_managers_report_bad_rows_and_load_later_valid_rows(malformation) -> None:
+    bad_row = investment_transaction_row(40, -20.0)
+    if malformation == "missing":
+        del bad_row["ZPRICEPERSHARE"]
+    elif malformation == "identity":
+        bad_row["ZGID"] = None
+    else:
+        bad_row["ZPRICEPERSHARE"] = None if malformation == "null" else "invalid"
+    good_row = {**investment_transaction_row(40, -20.0), "Z_PK": 42, "ZGID": "valid"}
+    manager = TransactionManager()
+
+    manager.load(
         cast(
             DatabaseAccessor,
-            ManagerAccessor(
-                "InvestmentBuyTransaction", investment_transaction_row(40, -20.0)
-            ),
-        )
-    )
-    holding_manager = InvestmentHoldingManager()
-    holding_manager.load(
-        cast(
-            DatabaseAccessor,
-            ManagerAccessor("InvestmentHolding", investment_holding_row()),
+            ManagerAccessor("InvestmentBuyTransaction", [bad_row, good_row]),
         )
     )
 
-    transaction = transaction_manager.get(40)
-    holding = holding_manager.get(24)
-    assert isinstance(transaction, InvestmentBuyTransaction)
-    assert holding is not None
-    assert transaction.price_per_share == Decimal("10.0")
-    assert holding.number_of_shares == Decimal("2.0")
+    assert list(manager.records()) == [42]
+    error_type = "AssertionError" if malformation == "identity" else "RuntimeError"
+    assert manager.load_errors == [(40, "InvestmentBuyTransaction", error_type)]
+    manager.load_errors.clear()
+    assert len(manager.load_errors) == 1
 
 
-class StaticCursor:
-    def __init__(self, row: dict):
-        self.row = row
+def test_ambiguous_store_schema_stops_before_record_loading(tmp_path) -> None:
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, [investment_transaction_row(40, -20.0)])
 
-    def execute(self, _query, _parameters):
-        return self
-
-    def fetchone(self):
-        return self.row
-
-
-class StaticConnection:
-    def __init__(self, row: dict):
-        self.row = row
-
-    def cursor(self):
-        return StaticCursor(self.row)
+    with patch("moneywiz_api.moneywiz_api.DatabaseAccessor") as accessor:
+        with pytest.raises(UnsupportedInvestmentSchemaError):
+            MoneywizApi(db_path)
+        accessor.assert_not_called()
 
 
-def test_accessor_public_constructors_receive_schema_profile() -> None:
-    transaction_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    transaction_accessor._con = cast(
-        Any, StaticConnection(investment_transaction_row(40, -20.0))
+def test_manager_does_not_skip_unsupported_schema_errors() -> None:
+    accessor = Mock()
+    accessor.query_objects.return_value = [investment_transaction_row(40, -20.0)]
+    accessor.typename_for.return_value = "InvestmentBuyTransaction"
+    accessor.schema_profile.create_record.side_effect = (
+        UnsupportedInvestmentSchemaError("unsupported schema")
     )
-    transaction_accessor._schema_profile = UNSUFFIXED_PROFILE
-    holding_accessor = DatabaseAccessor.__new__(DatabaseAccessor)
-    holding_accessor._con = cast(Any, StaticConnection(investment_holding_row()))
-    holding_accessor._schema_profile = UNSUFFIXED_PROFILE
+    manager = TransactionManager()
 
-    transaction = transaction_accessor.get_record(40, InvestmentBuyTransaction)
-    holding = holding_accessor.get_record_by_gid("holding", InvestmentHolding)
+    with pytest.raises(UnsupportedInvestmentSchemaError):
+        manager.load(accessor)
+    assert manager.load_errors == []
 
-    assert transaction.price_per_share == Decimal("10.0")
-    assert holding.number_of_shares == Decimal("2.0")
+
+def default_investment_rows():
+    rows = [
+        investment_holding_row(),
+        investment_transaction_row(40, -20.0),
+        investment_transaction_row(41, 20.0),
+    ]
+    for row in rows:
+        row["ZNUMBEROFSHARES1"] = None
+        row["ZPRICEPERSHARE"] = None
+        if row["Z_ENT"] != 24:
+            row["ZPRICEPERSHARE1"] = 10.0
+    return rows
 
 
 @pytest.mark.parametrize(
-    ("constructor", "row"),
+    ("model", "field_name"),
     [
-        (InvestmentBuyTransaction, investment_transaction_row(40, -20.0)),
-        (InvestmentSellTransaction, investment_transaction_row(41, 20.0)),
-        (InvestmentHolding, investment_holding_row()),
+        (InvestmentHolding, "number_of_shares"),
+        (InvestmentBuyTransaction, "number_of_shares"),
+        (InvestmentSellTransaction, "number_of_shares"),
+        (InvestmentBuyTransaction, "price_per_share"),
+        (InvestmentSellTransaction, "price_per_share"),
     ],
 )
-def test_investment_models_reject_ambiguous_profile(constructor, row) -> None:
-    with pytest.raises(
-        UnsupportedInvestmentSchemaError,
-        match="unsupported investment schema profile",
-    ):
-        constructor(mapped_row(row, constructor, schema_profile=UNKNOWN_PROFILE))
+def test_resolver_preserves_custom_investment_aliases(tmp_path, model, field_name):
+    definitions = {
+        name: dict(fields) for name, fields in DEFAULT_SCHEMA_PROFILE.column_map.items()
+    }
+    spec = DEFAULT_SCHEMA_PROFILE.specs_for(model)[field_name]
+    definitions[model.__name__][field_name] = schema_field(
+        "CUSTOM_FIELD", converter=spec.converter
+    )
+    rows = default_investment_rows()
+    entity = {
+        InvestmentHolding: 24,
+        InvestmentBuyTransaction: 40,
+        InvestmentSellTransaction: 41,
+    }[model]
+    row = next(row for row in rows if row["Z_ENT"] == entity)
+    row["CUSTOM_FIELD"] = 7.0 if field_name == "number_of_shares" else 12.0
+    # Ambiguous stock aliases on the customized consumer cannot override its mapping
+    # or invalidate inference for the other consumer.
+    row[
+        "ZNUMBEROFSHARES1" if field_name == "number_of_shares" else "ZPRICEPERSHARE"
+    ] = 9.0
+    if entity != 24:
+        amount = 70.0 if field_name == "number_of_shares" else 24.0
+        row["ZAMOUNT1"] = -amount if entity == 40 else amount
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, rows)
+    baseline = SchemaProfile(definitions)
+
+    profile = SchemaProfileResolver(db_path, baseline).resolve()
+    record = profile.create_record(row, model)
+    record.validate()
+
+    assert getattr(record, field_name) == Decimal(str(row["CUSTOM_FIELD"]))
+    assert profile.specs_for(model)[field_name].aliases == ("CUSTOM_FIELD",)
+    assert profile.specs_for(model)[field_name].converter is spec.converter
+    assert baseline.column_map == definitions
 
 
-@pytest.mark.parametrize(
-    ("manager", "typename", "row"),
-    [
-        (
-            TransactionManager(),
-            "InvestmentBuyTransaction",
-            investment_transaction_row(40, -20.0),
-        ),
-        (InvestmentHoldingManager(), "InvestmentHolding", investment_holding_row()),
-    ],
-)
-def test_managers_propagate_unsupported_investment_schema_errors(
-    manager, typename, row
-) -> None:
-    with pytest.raises(
-        UnsupportedInvestmentSchemaError,
-        match="unsupported investment schema profile",
-    ):
-        manager.load(
-            cast(DatabaseAccessor, ManagerAccessor(typename, row, UNKNOWN_PROFILE))
+@pytest.mark.parametrize("custom_aliases", [False, True])
+def test_resolver_preserves_inherited_investment_fields(tmp_path, custom_aliases):
+    definitions = {
+        name: dict(fields) for name, fields in DEFAULT_SCHEMA_PROFILE.column_map.items()
+    }
+    definitions["InvestmentTransaction"] = definitions["InvestmentBuyTransaction"]
+    definitions["InvestmentBuyTransaction"] = {}
+    definitions["InvestmentSellTransaction"] = {}
+    if custom_aliases:
+        definitions["InvestmentTransaction"]["number_of_shares"] = decimal_field(
+            "CUSTOM_SHARES"
         )
+        definitions["InvestmentTransaction"]["price_per_share"] = decimal_field(
+            "CUSTOM_PRICE"
+        )
+    rows = default_investment_rows()
+    for row in rows[1:]:
+        row["CUSTOM_SHARES"] = 2.0
+        row["CUSTOM_PRICE"] = 10.0
+        row["ZNUMBEROFSHARES"] = None
+        row["ZNUMBEROFSHARES1"] = 2.0
+        row["ZPRICEPERSHARE"] = 10.0
+        row["ZPRICEPERSHARE1"] = None
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, rows)
+    baseline = SchemaProfile(definitions)
+
+    profile = SchemaProfileResolver(db_path, baseline).resolve()
+
+    for row, model in zip(
+        rows[1:], (InvestmentBuyTransaction, InvestmentSellTransaction)
+    ):
+        record = profile.create_record(row, model)
+        record.validate()
+        assert record.number_of_shares == Decimal("2.0")
+        assert record.price_per_share == Decimal("10.0")
+    assert baseline.column_map == definitions
+
+
+def test_unrelated_custom_mapping_keeps_investment_detection_and_converter(tmp_path):
+    definitions = {
+        name: dict(fields) for name, fields in DEFAULT_SCHEMA_PROFILE.column_map.items()
+    }
+    definitions["Tag"]["name"] = schema_field("CUSTOM_TAG_NAME")
+
+    def converter(value):
+        return Decimal(str(value))
+
+    definitions["InvestmentBuyTransaction"]["price_per_share"] = schema_field(
+        "ZPRICEPERSHARE1", converter=converter
+    )
+    rows = default_investment_rows()
+    for row in rows[1:]:
+        row["ZPRICEPERSHARE"] = 10.0
+        row["ZPRICEPERSHARE1"] = None
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, rows)
+
+    profile = SchemaProfileResolver(db_path, SchemaProfile(definitions)).resolve()
+    record = profile.create_record(rows[1], InvestmentBuyTransaction)
+    record.validate()
+
+    assert record.price_per_share == Decimal("10.0")
+    assert (
+        profile.specs_for(InvestmentBuyTransaction)["price_per_share"].converter
+        is converter
+    )
+    assert profile.column_map["Tag"]["name"].aliases == ("CUSTOM_TAG_NAME",)
+
+
+def test_custom_price_does_not_require_stock_price_columns(tmp_path):
+    definitions = {
+        name: dict(fields) for name, fields in DEFAULT_SCHEMA_PROFILE.column_map.items()
+    }
+    definitions["InvestmentBuyTransaction"]["price_per_share"] = decimal_field(
+        "CUSTOM_PRICE"
+    )
+    row = investment_transaction_row(40, -24.0)
+    row["ZNUMBEROFSHARES1"] = None
+    row["CUSTOM_PRICE"] = 12.0
+    del row["ZPRICEPERSHARE"]
+    del row["ZPRICEPERSHARE1"]
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, [row])
+
+    profile = SchemaProfileResolver(db_path, SchemaProfile(definitions)).resolve()
+    record = profile.create_record(row, InvestmentBuyTransaction)
+    record.validate()
+    assert record.price_per_share == Decimal("12.0")
+
+
+def test_custom_price_does_not_bypass_ambiguous_default_shares(tmp_path):
+    definitions = {
+        name: dict(fields) for name, fields in DEFAULT_SCHEMA_PROFILE.column_map.items()
+    }
+    definitions["InvestmentBuyTransaction"]["price_per_share"] = decimal_field(
+        "CUSTOM_PRICE"
+    )
+    row = {**investment_transaction_row(40, -24.0), "CUSTOM_PRICE": 12.0}
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, [row])
+
+    with pytest.raises(UnsupportedInvestmentSchemaError):
+        SchemaProfileResolver(db_path, SchemaProfile(definitions)).resolve()

@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 import logging
-from typing import Callable, Dict, Generic, TypeVar
+from typing import Dict, Generic, TypeVar
 
 from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.model.record import Record
+from moneywiz_api.schema.schema_profile_resolver import UnsupportedInvestmentSchemaError
 from moneywiz_api.types import GID, ID
 
 T = TypeVar("T", bound=Record)
@@ -28,11 +29,13 @@ class RecordManager(ABC, Generic[T]):
             typename = db_accessor.typename_for(record["Z_ENT"])
             if typename in self.ents:
                 try:
-                    obj = self.construct_record(
-                        self.ents[typename], record, db_accessor
+                    obj = db_accessor.schema_profile.create_record(
+                        record, self.ents[typename]
                     )
                     obj.validate()
-                except (AssertionError, KeyError, ValueError) as exc:
+                except UnsupportedInvestmentSchemaError:
+                    raise
+                except (AssertionError, KeyError, RuntimeError, ValueError) as exc:
                     record_id = record.get("Z_PK")
                     detail = type(exc).__name__
                     self._load_errors.append((record_id, typename, detail))
@@ -44,12 +47,6 @@ class RecordManager(ABC, Generic[T]):
                     )
                     continue
                 self.add(obj)
-
-    def construct_record(
-        self, constructor: Callable, record, db_accessor: DatabaseAccessor
-    ):
-        """Construct a record; subclasses can supply schema-specific context."""
-        return db_accessor.schema_profile.create_record(record, constructor)
 
     def add(self, record: T) -> None:
         self._records[record.id] = record

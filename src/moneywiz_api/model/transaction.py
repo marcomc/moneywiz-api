@@ -352,9 +352,7 @@ class TransferWithdrawTransaction(Transaction):
                 raise ValueError(
                     "cannot reconstruct a transfer amount with a zero exchange rate"
                 )
-            self.original_amount = -abs(
-                self.recipient_amount / self.original_exchange_rate
-            )
+            self.original_amount = self.amount
 
     def validate(self) -> None:
         super().validate()

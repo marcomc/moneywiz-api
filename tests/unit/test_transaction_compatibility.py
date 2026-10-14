@@ -1,7 +1,10 @@
 from decimal import Decimal
+from typing import cast
 
 import pytest
 
+from moneywiz_api import DEFAULT_SCHEMA_PROFILE
+from moneywiz_api.database_accessor import DatabaseAccessor
 from moneywiz_api.managers.record_manager import RecordManager
 from moneywiz_api.model.transaction import TransferWithdrawTransaction
 
@@ -34,24 +37,27 @@ def transfer_withdraw_row(**overrides):
 
 def test_transfer_withdraw_rejects_zero_rate_reconstruction() -> None:
     with pytest.raises(ValueError, match="zero exchange rate"):
-        TransferWithdrawTransaction(transfer_withdraw_row())
+        DEFAULT_SCHEMA_PROFILE.create_record(
+            transfer_withdraw_row(), TransferWithdrawTransaction
+        )
 
 
 def test_transfer_withdraw_reconstructs_with_nonzero_rate() -> None:
-    transaction = TransferWithdrawTransaction(
-        transfer_withdraw_row(ZORIGINALEXCHANGERATE=1.0)
+    transaction = DEFAULT_SCHEMA_PROFILE.create_record(
+        transfer_withdraw_row(ZORIGINALEXCHANGERATE=1.0), TransferWithdrawTransaction
     )
 
     assert transaction.original_amount == Decimal("-10.0")
 
 
 def test_transfer_withdraw_preserves_stored_amount_with_rounded_rate() -> None:
-    transaction = TransferWithdrawTransaction(
+    transaction = DEFAULT_SCHEMA_PROFILE.create_record(
         transfer_withdraw_row(
             ZAMOUNT1=-3.333,
             ZORIGINALRECIPIENTAMOUNT=10.0,
             ZORIGINALEXCHANGERATE=3.0,
-        )
+        ),
+        TransferWithdrawTransaction,
     )
 
     assert transaction.original_amount == Decimal("-3.333")
@@ -64,6 +70,8 @@ class TransferWithdrawManager(RecordManager):
 
 
 class TransferWithdrawAccessor:
+    schema_profile = DEFAULT_SCHEMA_PROFILE
+
     def __init__(self, rows):
         self.rows = rows
 
@@ -77,15 +85,18 @@ class TransferWithdrawAccessor:
 def test_transfer_manager_skips_zero_rate_and_loads_later_valid_row() -> None:
     manager = TransferWithdrawManager()
     manager.load(
-        TransferWithdrawAccessor(
-            [
-                transfer_withdraw_row(),
-                transfer_withdraw_row(
-                    Z_PK=2,
-                    ZGID="valid-transfer-withdraw",
-                    ZORIGINALEXCHANGERATE=1.0,
-                ),
-            ]
+        cast(
+            DatabaseAccessor,
+            TransferWithdrawAccessor(
+                [
+                    transfer_withdraw_row(),
+                    transfer_withdraw_row(
+                        Z_PK=2,
+                        ZGID="valid-transfer-withdraw",
+                        ZORIGINALEXCHANGERATE=1.0,
+                    ),
+                ]
+            ),
         )
     )
 

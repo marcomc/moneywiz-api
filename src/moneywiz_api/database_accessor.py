@@ -2,16 +2,10 @@ import sqlite3
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, cast
 
 from moneywiz_api.schema.raw_data_handler import RawDataHandler as RDH
 from moneywiz_api.model.record import Record
-from moneywiz_api.model.investment_holding import InvestmentHolding
-from moneywiz_api.model.transaction import (
-    InvestmentBuyTransaction,
-    InvestmentSellTransaction,
-)
-from moneywiz_api.schema_profile import SchemaProfile, detect_schema_profile
 from moneywiz_api.types import ENT_ID, GID, ID
 from moneywiz_api.schema.schema_profile import SchemaProfile
 
@@ -32,7 +26,6 @@ class DatabaseAccessor:
             return record
 
         self._con.row_factory = dict_factory
-        self._schema_profile = detect_schema_profile(self._con)
 
         self._ent_to_typename: Dict[ENT_ID, str] = self._load_primarykey()
         self._typename_to_ent: Dict[str, ENT_ID] = {
@@ -55,11 +48,6 @@ class DatabaseAccessor:
         return "\n".join(
             f"{key}: {value}" for key, value in self._ent_to_typename.items()
         )
-
-    @property
-    def schema_profile(self) -> SchemaProfile:
-        """Return the physical-column compatibility profile for this store."""
-        return self._schema_profile
 
     def typename_for(self, ent_id: ENT_ID) -> str:
         typename = self._ent_to_typename.get(ent_id)
@@ -92,7 +80,7 @@ class DatabaseAccessor:
     def _construct_record(self, row, constructor: Callable):
         if isinstance(constructor, type) and issubclass(constructor, Record):
             return self.schema_profile.create_record(row, constructor)
-        return constructor(row)
+        return cast(Callable, constructor)(row)
 
     def get_record(self, pk_id: ID, constructor: Callable = Record):
         cur = self._con.cursor()
