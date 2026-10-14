@@ -35,17 +35,29 @@ def transfer_withdraw_row(**overrides):
     return row
 
 
-def test_transfer_withdraw_rejects_zero_rate_reconstruction() -> None:
+@pytest.mark.parametrize(
+    ("original_amount", "recipient_amount"), [(0.0, 10.0), (-10.0, 10.0), (-10.0, 0.0)]
+)
+def test_transfer_withdraw_rejects_zero_rate(original_amount, recipient_amount) -> None:
     with pytest.raises(ValueError, match="zero exchange rate"):
         DEFAULT_SCHEMA_PROFILE.create_record(
-            transfer_withdraw_row(), TransferWithdrawTransaction
+            transfer_withdraw_row(
+                ZORIGINALAMOUNT=original_amount,
+                ZORIGINALRECIPIENTAMOUNT=recipient_amount,
+            ),
+            TransferWithdrawTransaction,
         )
 
 
-def test_transfer_withdraw_reconstructs_with_nonzero_rate() -> None:
+@pytest.mark.parametrize("original_amount", [0.0, -10.0])
+def test_transfer_withdraw_preserves_amount_with_nonzero_rate(original_amount) -> None:
     transaction = DEFAULT_SCHEMA_PROFILE.create_record(
-        transfer_withdraw_row(ZORIGINALEXCHANGERATE=1.0), TransferWithdrawTransaction
+        transfer_withdraw_row(
+            ZORIGINALAMOUNT=original_amount, ZORIGINALEXCHANGERATE=1.0
+        ),
+        TransferWithdrawTransaction,
     )
+    transaction.validate()
 
     assert transaction.original_amount == Decimal("-10.0")
 
@@ -82,14 +94,22 @@ class TransferWithdrawAccessor:
         return "TransferWithdrawTransaction"
 
 
-def test_transfer_manager_skips_zero_rate_and_loads_later_valid_row() -> None:
+@pytest.mark.parametrize(
+    ("original_amount", "recipient_amount"), [(0.0, 10.0), (-10.0, 10.0), (-10.0, 0.0)]
+)
+def test_transfer_manager_skips_zero_rate_and_loads_later_valid_row(
+    original_amount, recipient_amount
+) -> None:
     manager = TransferWithdrawManager()
     manager.load(
         cast(
             DatabaseAccessor,
             TransferWithdrawAccessor(
                 [
-                    transfer_withdraw_row(),
+                    transfer_withdraw_row(
+                        ZORIGINALAMOUNT=original_amount,
+                        ZORIGINALRECIPIENTAMOUNT=recipient_amount,
+                    ),
                     transfer_withdraw_row(
                         Z_PK=2,
                         ZGID="valid-transfer-withdraw",

@@ -336,6 +336,8 @@ class TransferWithdrawTransaction(Transaction):
         super().__init__(row, field_values)
 
         # Fixes
+        if self.original_exchange_rate == 0:
+            raise ValueError("cannot read a transfer with a zero exchange rate")
         if (
             self.recipient_amount in (None, Decimal(0))
             and self.original_amount is not None
@@ -348,10 +350,6 @@ class TransferWithdrawTransaction(Transaction):
             None,
             Decimal(0),
         ):
-            if self.original_exchange_rate == 0:
-                raise ValueError(
-                    "cannot reconstruct a transfer amount with a zero exchange rate"
-                )
             self.original_amount = self.amount
 
     def validate(self) -> None:
