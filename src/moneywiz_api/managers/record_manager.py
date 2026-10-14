@@ -33,6 +33,7 @@ class RecordManager(ABC, Generic[T]):
                         record, self.ents[typename]
                     )
                     obj.validate()
+                    self.add(obj)
                 except UnsupportedInvestmentSchemaError:
                     raise
                 except (AssertionError, KeyError, RuntimeError, ValueError) as exc:
@@ -46,15 +47,16 @@ class RecordManager(ABC, Generic[T]):
                         detail,
                     )
                     continue
-                self.add(obj)
 
     def add(self, record: T) -> None:
-        self._records[record.id] = record
+        if record.id in self._records:
+            raise RuntimeError(f"Duplicate id {record.id}")
         if record.gid in self._gid_to_id:
             raise RuntimeError(
                 f"Duplicate gid for {record}, existing record Id {self._gid_to_id[record.gid]}"
             )
 
+        self._records[record.id] = record
         self._gid_to_id[record.gid] = record.id
 
     def get(self, record_id: ID) -> T | None:

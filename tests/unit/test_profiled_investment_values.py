@@ -276,6 +276,70 @@ def test_managers_report_bad_rows_and_load_later_valid_rows(malformation) -> Non
     assert len(manager.load_errors) == 1
 
 
+@pytest.mark.parametrize("identity", ["gid", "id", "both"])
+def test_manager_duplicate_refusal_preserves_existing_records(identity) -> None:
+    manager = TransactionManager()
+    row = investment_transaction_row(40, -20.0)
+    first = UNSUFFIXED_PROFILE.create_record(row, InvestmentBuyTransaction)
+    manager.add(first)
+    duplicate_row = {
+        **row,
+        "Z_PK": 41 if identity == "gid" else 40,
+        "ZGID": "duplicate" if identity == "id" else row["ZGID"],
+    }
+    duplicate = UNSUFFIXED_PROFILE.create_record(
+        duplicate_row, InvestmentBuyTransaction
+    )
+
+    with pytest.raises(RuntimeError, match="Duplicate"):
+        manager.add(duplicate)
+
+    assert list(manager.records()) == [40]
+    assert manager.get(40) is first
+    assert manager.get_by_gid(row["ZGID"]) is first
+    assert manager.get_by_gid("duplicate") is None
+    assert manager.load_errors == []
+
+
+@pytest.mark.parametrize("identity", ["gid", "id", "both"])
+def test_manager_reports_duplicates_and_loads_later_rows(tmp_path, identity) -> None:
+    first_row = investment_transaction_row(40, -20.0)
+    first_row["ZNUMBEROFSHARES1"] = None
+    first_row["ZPRICEPERSHARE1"] = None
+    duplicate_row = {
+        **first_row,
+        "Z_PK": 41 if identity == "gid" else 40,
+        "ZGID": "duplicate" if identity == "id" else first_row["ZGID"],
+        "ZAMOUNT1": -40.0,
+        "ZNUMBEROFSHARES": 4.0,
+    }
+    later_row = {**first_row, "Z_PK": 42, "ZGID": "later"}
+    db_path = tmp_path / "moneywiz.sqlite"
+    create_investment_database(db_path, [first_row, duplicate_row, later_row])
+    profile = SchemaProfileResolver(db_path, UNSUFFIXED_PROFILE).resolve()
+    accessor = DatabaseAccessor(db_path, profile)
+    manager = TransactionManager()
+
+    try:
+        manager.load(accessor)
+
+        assert list(manager.records()) == [40, 42]
+        first = manager.get(40)
+        assert first is not None
+        assert manager.get_by_gid(first_row["ZGID"]) is first
+        assert first.amount == Decimal("-20.0")
+        assert manager.get_by_gid("later") is manager.get(42)
+        assert manager.get_by_gid("duplicate") is None
+        assert manager.load_errors == [
+            (duplicate_row["Z_PK"], "InvestmentBuyTransaction", "RuntimeError")
+        ]
+        assert (
+            manager.category_assignment == manager.refund_maps == manager.tags_map == {}
+        )
+    finally:
+        accessor._con.close()
+
+
 def test_ambiguous_store_schema_stops_before_record_loading(tmp_path) -> None:
     db_path = tmp_path / "moneywiz.sqlite"
     create_investment_database(db_path, [investment_transaction_row(40, -20.0)])
